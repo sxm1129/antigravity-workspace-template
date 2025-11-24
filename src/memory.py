@@ -45,7 +45,7 @@ class MemoryManager:
         with open(self.memory_file, 'w', encoding='utf-8') as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
 
-    def add_entry(self, role: str, content: str, metadata: Dict[str, Any] = None):
+    def add_entry(self, role: str, content: str, metadata: Optional[Dict[str, Any]] = None):
         """Adds a new interaction to memory."""
         entry = {
             "role": role,
