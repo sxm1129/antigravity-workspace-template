@@ -40,3 +40,4 @@ venv.bak/
 # Project specific
 logs/
 data/
+.opencode/
