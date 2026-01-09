@@ -95,6 +95,9 @@ class DockerSandbox(CodeSandbox):
                     try:
                         container.kill()
                     except Exception:
+                        # Best-effort cleanup: ignore errors if the container is already
+                        # stopped, missing, or cannot be killed. The timeout result below
+                        # is returned to the caller regardless of kill() success.
                         pass
                     return ExecutionResult(
                         stdout="",
