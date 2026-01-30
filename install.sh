@@ -58,6 +58,17 @@ echo "📦 Installing dependencies..."
 pip install -r requirements.txt --quiet
 echo "✅ Dependencies installed"
 
+# Ensure correct Google GenAI package is installed (avoid deprecated package)
+if python -m pip show google-generativeai > /dev/null 2>&1; then
+    echo "⚠️  Detected deprecated google-generativeai package. Removing..."
+    python -m pip uninstall -y google-generativeai --quiet || true
+fi
+
+if ! python -m pip show google-genai > /dev/null 2>&1; then
+    echo "📦 Installing google-genai (required for from google import genai)..."
+    python -m pip install google-genai --quiet
+fi
+
 # Initialize configuration
 echo "🔧 Setting up configuration..."
 

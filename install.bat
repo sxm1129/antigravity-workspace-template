@@ -76,6 +76,19 @@ if errorlevel 1 (
 )
 echo ✅ Dependencies installed
 
+REM Ensure correct Google GenAI package is installed (avoid deprecated package)
+python -m pip show google-generativeai >nul 2>&1
+if not errorlevel 1 (
+    echo ⚠️  Detected deprecated google-generativeai package. Removing...
+    python -m pip uninstall -y google-generativeai --quiet
+)
+
+python -m pip show google-genai >nul 2>&1
+if errorlevel 1 (
+    echo 📦 Installing google-genai (required for from google import genai)...
+    python -m pip install google-genai --quiet
+)
+
 REM Initialize configuration
 echo 🔧 Setting up configuration...
 
