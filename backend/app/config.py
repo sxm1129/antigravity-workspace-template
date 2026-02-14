@@ -1,0 +1,66 @@
+from __future__ import annotations
+"""Application configuration using Pydantic Settings."""
+
+from functools import lru_cache
+from urllib.parse import quote_plus
+
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """MotionWeaver application settings.
+
+    Loaded from environment variables or .env file.
+    """
+
+    # --- Application ---
+    APP_NAME: str = "MotionWeaver"
+    DEBUG: bool = True
+    USE_MOCK_API: bool = True
+
+    # --- Database (MySQL 8.0+) ---
+    DB_HOST: str = "39.98.37.143"
+    DB_PORT: int = 3306
+    DB_USER: str = "root"
+    DB_PASSWORD: str = ""
+    DB_NAME: str = "comicdrama"
+
+    @property
+    def DATABASE_URL(self) -> str:
+        """Async MySQL connection string using asyncmy driver."""
+        encoded_password = quote_plus(self.DB_PASSWORD)
+        return (
+            f"mysql+asyncmy://{self.DB_USER}:{encoded_password}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+            "?charset=utf8mb4"
+        )
+
+    # --- Redis ---
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # --- Media Volume ---
+    MEDIA_VOLUME: str = "media_volume"
+
+    # --- AI Service Keys ---
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-pro"
+    NANO_BANANA_API_KEY: str = ""
+    NANO_BANANA_ENDPOINT: str = ""
+    SEEDANCE_API_KEY: str = ""
+    SEEDANCE_ENDPOINT: str = ""
+
+    # --- IndexTTS ---
+    INDEX_TTS_URL: str = "http://39.102.122.9:8049"
+    INDEX_TTS_VOICE: str = "zh_male_tech"
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Get cached application settings singleton."""
+    return Settings()

@@ -1,0 +1,32 @@
+# MotionWeaver Backend Dependencies
+# Python 3.12 + FastAPI + SQLAlchemy 2.0 (MySQL async)
+
+# Web framework
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+python-multipart==0.0.20
+websockets==14.2
+
+# Database
+sqlalchemy[asyncio]==2.0.38
+asyncmy==0.2.9
+alembic==1.14.1
+
+# Async HTTP client
+httpx==0.28.1
+
+# Data validation
+pydantic==2.11.1
+pydantic-settings==2.8.1
+
+# Celery + Redis
+celery[redis]==5.4.0
+redis==5.2.1
+
+# Media
+ffmpeg-python==0.2.0
+Pillow==11.1.0
+
+# Utilities
+python-dotenv==1.1.0
+eval_type_backport==0.3.1

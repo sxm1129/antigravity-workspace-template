@@ -1,13 +1,131 @@
 version: '3.8'
 
 services:
-  agent:
-    build: .
-    container_name: antigravity-agent
+  # --- MySQL 8.0 ---
+  mysql:
+    image: mysql:8.0
+    container_name: motionweaver-mysql
     environment:
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - AGENT_NAME=ProductionAgent
-      - DEBUG_MODE=true
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-hs@A1b2c3d4e5}
+      MYSQL_DATABASE: ${DB_NAME:-comicdrama}
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports:
+      - "3307:3306"
     volumes:
-      - ./agent_memory.json:/app/agent_memory.json
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Redis ---
+  redis:
+    image: redis:7-alpine
+    container_name: motionweaver-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- FastAPI Backend ---
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: motionweaver-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=${DB_HOST:-mysql}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-hs@A1b2c3d4e5}
+      - DB_NAME=${DB_NAME:-comicdrama}
+      - REDIS_URL=redis://redis:6379/0
+      - USE_MOCK_API=${USE_MOCK_API:-True}
+      - MEDIA_VOLUME=/app/media_volume
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - INDEX_TTS_URL=${INDEX_TTS_URL:-http://39.102.122.9:8049}
+      - INDEX_TTS_VOICE=${INDEX_TTS_VOICE:-zh_male_tech}
+    volumes:
+      - ./media_volume:/app/media_volume
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Celery Worker ---
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: motionweaver-celery-worker
+    command: celery -A app.tasks worker --loglevel=info --concurrency=2
+    environment:
+      - DB_HOST=${DB_HOST:-mysql}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-hs@A1b2c3d4e5}
+      - DB_NAME=${DB_NAME:-comicdrama}
+      - REDIS_URL=redis://redis:6379/0
+      - USE_MOCK_API=${USE_MOCK_API:-True}
+      - MEDIA_VOLUME=/app/media_volume
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - INDEX_TTS_URL=${INDEX_TTS_URL:-http://39.102.122.9:8049}
+    volumes:
+      - ./media_volume:/app/media_volume
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Celery Beat (Scheduler) ---
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: motionweaver-celery-beat
+    command: celery -A app.tasks beat --loglevel=info
+    environment:
+      - DB_HOST=${DB_HOST:-mysql}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-hs@A1b2c3d4e5}
+      - DB_NAME=${DB_NAME:-comicdrama}
+      - REDIS_URL=redis://redis:6379/0
+      - MEDIA_VOLUME=/app/media_volume
+    volumes:
+      - ./media_volume:/app/media_volume
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Next.js Frontend ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: motionweaver-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  mysql_data:

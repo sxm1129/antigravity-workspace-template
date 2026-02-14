@@ -32,7 +32,6 @@ env.bak/
 venv.bak/
 
 # Antigravity / IDE
-
 .idea/
 .vscode/
 *.swp
@@ -41,3 +40,15 @@ venv.bak/
 logs/
 data/
 .opencode/
+
+# MotionWeaver
+media_volume/
+backend/.env
+backend/venv/
+frontend/.next/
+frontend/node_modules/
+frontend/.env.local
+*.mp4
+*.wav
+*.mp3
+.tasks/
