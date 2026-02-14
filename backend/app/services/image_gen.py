@@ -1,8 +1,9 @@
 from __future__ import annotations
-"""Image generation service — integrates with Nano Banana Pro.
+"""Image generation service — uses Gemini 2.5 Flash via OpenRouter.
 
-Handles identity-locked image generation with Base64 reference image injection.
-All generated images are downloaded and saved to local media_volume.
+Gemini 2.5 Flash supports native image generation (multimodal output).
+We send a visual prompt and receive a generated image in the response.
+Images are saved to local media_volume.
 """
 
 import base64
@@ -15,6 +16,17 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+IMAGE_SYSTEM_PROMPT = """你是一位专业的漫画/动漫插画师。请根据用户提供的详细画面描述，
+生成一张高质量的漫剧风格插画。
+
+要求：
+- 画风统一、细腻，适合漫剧作品
+- 画面比例为 16:9 (1920x1080)
+- 构图、光影、色调要符合描述中的要求
+- 人物外貌、表情、服装要精准还原描述"""
 
 
 async def generate_image(
@@ -39,50 +51,109 @@ async def generate_image(
     if settings.USE_MOCK_API:
         return _mock_image(project_id, scene_id, prompt_visual)
 
-    # Build payload with Base64 identity references
-    payload: dict = {
-        "prompt": prompt_visual,
-    }
-
+    # Build the prompt with SFX text if provided
+    full_prompt = prompt_visual
     if sfx_text:
-        payload["text_rendering"] = [sfx_text]
+        full_prompt += f"\n\n画面上需要渲染的文字效果: {sfx_text}"
 
+    # Build messages for the image gen request
+    messages: list[dict] = [
+        {"role": "system", "content": IMAGE_SYSTEM_PROMPT},
+    ]
+
+    # If identity reference images are provided, include them as context
+    user_content: list[dict] = []
     if identity_refs:
-        ref_images_b64 = []
         for ref_path in identity_refs:
             full_path = os.path.join(settings.MEDIA_VOLUME, ref_path)
             if os.path.exists(full_path):
                 with open(full_path, "rb") as f:
                     img_b64 = base64.b64encode(f.read()).decode("utf-8")
-                    ref_images_b64.append(img_b64)
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+                })
             else:
                 logger.warning("Identity ref not found: %s", full_path)
 
-        if ref_images_b64:
-            payload["identity_lock"] = {"reference_images": ref_images_b64}
+    user_content.append({"type": "text", "text": f"请生成以下画面的插画:\n\n{full_prompt}"})
+    messages.append({"role": "user", "content": user_content})
 
-    # Call Nano Banana Pro API
     headers = {
-        "Authorization": f"Bearer {settings.NANO_BANANA_API_KEY}",
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://motionweaver.app",
+        "X-Title": "MotionWeaver",
     }
 
+    body = {
+        "model": settings.IMAGE_MODEL,
+        "messages": messages,
+        "temperature": 0.8,
+        "max_tokens": 4096,
+    }
+
+    logger.info("Calling OpenRouter image model=%s for scene=%s", settings.IMAGE_MODEL, scene_id[:8])
+
     async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(
-            settings.NANO_BANANA_ENDPOINT, headers=headers, json=payload
-        )
+        response = await client.post(OPENROUTER_URL, headers=headers, json=body)
         response.raise_for_status()
 
-    result = response.json()
-    image_url = result.get("image_url") or result.get("url")
+    data = response.json()
 
-    if not image_url:
-        raise RuntimeError("Nano Banana API returned no image URL")
+    # Parse response — look for inline image data
+    choice = data["choices"][0]["message"]
+    image_data = None
 
-    # Download image to local media_volume
-    rel_path = await _download_image(image_url, project_id, scene_id)
-    logger.info("Image saved: %s", rel_path)
+    # Check for multimodal content (inline_data format)
+    if isinstance(choice.get("content"), list):
+        for part in choice["content"]:
+            if part.get("type") == "image_url":
+                image_url = part["image_url"]["url"]
+                if image_url.startswith("data:"):
+                    # Inline base64 image
+                    b64_str = image_url.split(",", 1)[1] if "," in image_url else image_url
+                    image_data = base64.b64decode(b64_str)
+                else:
+                    # External URL — download it
+                    image_data = await _download_bytes(image_url)
+                break
+    elif isinstance(choice.get("content"), str):
+        # Text-only response — Gemini might return text description instead of image
+        logger.warning("Image model returned text instead of image: %s", choice["content"][:200])
+
+    if not image_data:
+        raise RuntimeError(
+            f"Image generation failed: model returned no image data. "
+            f"Response keys: {list(data.keys())}"
+        )
+
+    # Save to media_volume
+    rel_path = _save_image(image_data, project_id, scene_id)
+    logger.info("Image saved: %s (%d bytes)", rel_path, len(image_data))
     return rel_path
+
+
+async def _download_bytes(url: str) -> bytes:
+    """Download binary content from URL."""
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.content
+
+
+def _save_image(image_data: bytes, project_id: str, scene_id: str) -> str:
+    """Save image bytes to media_volume directory."""
+    dir_path = os.path.join(settings.MEDIA_VOLUME, project_id, "images")
+    os.makedirs(dir_path, exist_ok=True)
+
+    filename = f"{scene_id}.png"
+    filepath = os.path.join(dir_path, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(image_data)
+
+    return f"{project_id}/images/{filename}"
 
 
 async def _download_image(url: str, project_id: str, scene_id: str) -> str:
@@ -104,17 +175,13 @@ async def _download_image(url: str, project_id: str, scene_id: str) -> str:
 
 
 def _mock_image(project_id: str, scene_id: str, prompt: str) -> str:
-    """Generate a mock placeholder image (solid color JPEG with text).
-
-    Creates a simple colored rectangle as a stand-in for real generation.
-    """
+    """Generate a mock placeholder image (solid color JPEG with text)."""
     try:
         from PIL import Image, ImageDraw, ImageFont
 
         img = Image.new("RGB", (1920, 1080), color=(35, 35, 60))
         draw = ImageDraw.Draw(img)
 
-        # Draw prompt text preview
         try:
             font = ImageFont.truetype("/System/Library/Fonts/PingFang.ttc", 28)
         except (OSError, IOError):
@@ -134,13 +201,11 @@ def _mock_image(project_id: str, scene_id: str, prompt: str) -> str:
         img.save(filepath, "PNG")
 
     except ImportError:
-        # Fallback: create a minimal 1x1 PNG if PIL not available
         import struct
         dir_path = os.path.join(settings.MEDIA_VOLUME, project_id, "images")
         os.makedirs(dir_path, exist_ok=True)
         filepath = os.path.join(dir_path, f"{scene_id}.png")
 
-        # Minimal valid PNG (1x1 blue pixel)
         png_data = (
             b'\x89PNG\r\n\x1a\n'
             b'\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02'

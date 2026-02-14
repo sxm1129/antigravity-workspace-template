@@ -1,6 +1,7 @@
 from __future__ import annotations
-"""AI Writer service — generates outline, script, and parses scenes using Gemini.
+"""AI Writer service — generates outline, script, and parses scenes.
 
+Uses OpenRouter API with google/gemini-3-flash-preview.
 In mock mode, returns canned responses for testing.
 """
 
@@ -14,6 +15,7 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 OUTLINE_SYSTEM_PROMPT = """你是一位经验丰富的漫剧编剧。根据用户提供的一句话灵感（logline），
 请扩写出一个完整的故事大纲，包含：
@@ -56,7 +58,7 @@ PARSE_SCENES_SYSTEM_PROMPT = """你是一个专业的漫剧分镜拆解助手。
 
 
 async def generate_outline(logline: str) -> str:
-    """Generate a world outline from a logline using Gemini.
+    """Generate a world outline from a logline.
 
     Args:
         logline: A one-sentence story idea.
@@ -67,7 +69,7 @@ async def generate_outline(logline: str) -> str:
     if settings.USE_MOCK_API:
         return _mock_outline(logline)
 
-    return await _call_gemini(
+    return await _call_openrouter(
         system_prompt=OUTLINE_SYSTEM_PROMPT,
         user_prompt=f"灵感：{logline}",
     )
@@ -85,7 +87,7 @@ async def generate_script(outline: str) -> str:
     if settings.USE_MOCK_API:
         return _mock_script(outline)
 
-    return await _call_gemini(
+    return await _call_openrouter(
         system_prompt=SCRIPT_SYSTEM_PROMPT,
         user_prompt=f"故事大纲：\n\n{outline}",
     )
@@ -103,7 +105,7 @@ async def parse_scenes(script: str) -> list[dict]:
     if settings.USE_MOCK_API:
         return _mock_parse_scenes(script)
 
-    response_text = await _call_gemini(
+    response_text = await _call_openrouter(
         system_prompt=PARSE_SCENES_SYSTEM_PROMPT,
         user_prompt=f"剧本：\n\n{script}",
         json_mode=True,
@@ -112,50 +114,52 @@ async def parse_scenes(script: str) -> list[dict]:
         data = json.loads(response_text)
         return data.get("scenes", [])
     except json.JSONDecodeError:
-        logger.error("Failed to parse Gemini JSON response: %s", response_text[:500])
+        logger.error("Failed to parse JSON response: %s", response_text[:500])
         raise ValueError("AI returned invalid JSON for scene parsing")
 
 
-async def _call_gemini(
+async def _call_openrouter(
     system_prompt: str,
     user_prompt: str,
     json_mode: bool = False,
 ) -> str:
-    """Call Gemini API via REST endpoint.
+    """Call OpenRouter chat completions API.
 
-    IMPORTANT: This function must NOT be called while holding a DB session.
-    Follow the pattern: query DB -> release session -> call API -> new session to write.
+    Uses google/gemini-3-flash-preview for story generation tasks.
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent"
-
     headers = {
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://motionweaver.app",
+        "X-Title": "MotionWeaver",
     }
-    params = {"key": settings.GEMINI_API_KEY}
 
     body: dict = {
-        "contents": [
-            {"role": "user", "parts": [{"text": user_prompt}]}
+        "model": settings.STORY_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
         ],
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": {
-            "temperature": 0.8,
-            "maxOutputTokens": 8192,
-        },
+        "temperature": 0.8,
+        "max_tokens": 8192,
     }
     if json_mode:
-        body["generationConfig"]["responseMimeType"] = "application/json"
+        body["response_format"] = {"type": "json_object"}
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(url, headers=headers, params=params, json=body)
+    logger.info("Calling OpenRouter model=%s json_mode=%s", settings.STORY_MODEL, json_mode)
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        response = await client.post(OPENROUTER_URL, headers=headers, json=body)
         response.raise_for_status()
 
     data = response.json()
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    content = data["choices"][0]["message"]["content"]
+    logger.info("OpenRouter response received, length=%d", len(content))
+    return content
 
 
 # ---------------------------------------------------------------------------
-# Mock implementations
+# Mock implementations (kept for testing with USE_MOCK_API=True)
 # ---------------------------------------------------------------------------
 
 def _mock_outline(logline: str) -> str:

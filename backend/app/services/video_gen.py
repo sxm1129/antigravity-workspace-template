@@ -1,10 +1,15 @@
 from __future__ import annotations
-"""Video generation service — integrates with Seedance 2.0.
+"""Video generation service — uses Volcengine Ark Seedance (I2V).
 
-Reads local image and audio files as Base64 before sending to the cloud API.
-Enforces Redis mutex to prevent duplicate expensive requests.
+Async task pattern:
+1. POST /contents/generations/tasks → create task
+2. GET  /contents/generations/tasks/{id} → poll status
+3. Download result video when task completes
+
+Model: doubao-seedance-1-0-lite-i2v-250428
 """
 
+import asyncio
 import base64
 import logging
 import os
@@ -24,7 +29,7 @@ async def generate_video(
     local_image_path: str,
     local_audio_path: str | None = None,
 ) -> str:
-    """Generate a video for a scene using Seedance 2.0.
+    """Generate a video for a scene using Volcengine Seedance I2V.
 
     Args:
         prompt_motion: Motion description prompt.
@@ -39,47 +44,118 @@ async def generate_video(
     if settings.USE_MOCK_API:
         return _mock_video(project_id, scene_id)
 
-    # Read local image as Base64 — NEVER pass localhost URLs to cloud
+    # Read local image as Base64 for URL embedding
     image_full_path = os.path.join(settings.MEDIA_VOLUME, local_image_path)
     with open(image_full_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-    payload: dict = {
-        "prompt": prompt_motion,
-        "image": image_b64,
-        "lip_sync": True,
+    image_data_url = f"data:image/png;base64,{image_b64}"
+
+    # Build Seedance task creation payload
+    # Format: text prompt with generation params + reference image
+    prompt_text = (
+        f"{prompt_motion}  "
+        f"--resolution 720p  --duration 5 --camerafixed false --watermark true"
+    )
+
+    payload = {
+        "model": settings.ARK_VIDEO_MODEL,
+        "content": [
+            {
+                "type": "text",
+                "text": prompt_text,
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": image_data_url,
+                },
+            },
+        ],
     }
 
-    # Read audio as Base64 if available
-    if local_audio_path:
-        audio_full_path = os.path.join(settings.MEDIA_VOLUME, local_audio_path)
-        if os.path.exists(audio_full_path):
-            with open(audio_full_path, "rb") as f:
-                audio_b64 = base64.b64encode(f.read()).decode("utf-8")
-            payload["audio"] = audio_b64
-
-    # Call Seedance 2.0 API
     headers = {
-        "Authorization": f"Bearer {settings.SEEDANCE_API_KEY}",
         "Content-Type": "application/json",
+        "Authorization": f"Bearer {settings.ARK_API_KEY}",
     }
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        response = await client.post(
-            settings.SEEDANCE_ENDPOINT, headers=headers, json=payload
-        )
+    task_url = f"{settings.ARK_ENDPOINT}/contents/generations/tasks"
+
+    logger.info("Creating Seedance task for scene=%s", scene_id[:8])
+
+    # Step 1: Create task
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(task_url, headers=headers, json=payload)
         response.raise_for_status()
 
-    result = response.json()
-    video_url = result.get("video_url") or result.get("url")
+    task_data = response.json()
+    task_id = task_data.get("id") or task_data.get("task_id")
+    if not task_id:
+        raise RuntimeError(f"Seedance API returned no task ID: {task_data}")
 
-    if not video_url:
-        raise RuntimeError("Seedance API returned no video URL")
+    logger.info("Seedance task created: %s", task_id)
 
-    # Download video to local media_volume
+    # Step 2: Poll for completion
+    poll_url = f"{task_url}/{task_id}"
+    video_url = await _poll_task(poll_url, headers, timeout_seconds=600)
+
+    # Step 3: Download video
     rel_path = await _download_video(video_url, project_id, scene_id)
     logger.info("Video saved: %s", rel_path)
     return rel_path
+
+
+async def _poll_task(
+    poll_url: str,
+    headers: dict,
+    timeout_seconds: int = 600,
+    interval_seconds: int = 10,
+) -> str:
+    """Poll Volcengine task status until completion.
+
+    Returns the video URL when task succeeds.
+    Raises RuntimeError on timeout or failure.
+    """
+    elapsed = 0
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        while elapsed < timeout_seconds:
+            await asyncio.sleep(interval_seconds)
+            elapsed += interval_seconds
+
+            response = await client.get(poll_url, headers=headers)
+            response.raise_for_status()
+
+            data = response.json()
+            status = data.get("status", "").lower()
+
+            logger.info("Seedance task poll: status=%s elapsed=%ds", status, elapsed)
+
+            if status in ("succeeded", "completed", "success"):
+                # Extract video URL from result
+                output = data.get("output", {})
+                video_url = (
+                    output.get("video_url")
+                    or output.get("url")
+                    or data.get("video_url")
+                )
+                if not video_url:
+                    # Try content array format
+                    content = output.get("content", [])
+                    for item in content:
+                        if item.get("type") == "video_url":
+                            video_url = item.get("video_url", {}).get("url")
+                            break
+
+                if not video_url:
+                    raise RuntimeError(f"Task succeeded but no video URL found: {data}")
+
+                return video_url
+
+            elif status in ("failed", "error", "cancelled"):
+                error_msg = data.get("error", {}).get("message", "Unknown error")
+                raise RuntimeError(f"Seedance task failed: {error_msg}")
+
+    raise RuntimeError(f"Seedance task timed out after {timeout_seconds}s")
 
 
 async def _download_video(url: str, project_id: str, scene_id: str) -> str:
@@ -101,10 +177,7 @@ async def _download_video(url: str, project_id: str, scene_id: str) -> str:
 
 
 def _mock_video(project_id: str, scene_id: str) -> str:
-    """Generate a mock video file (5-second color bars via FFmpeg or fallback).
-
-    Uses FFmpeg to create a minimal test video, falls back to a tiny MP4 stub.
-    """
+    """Generate a mock video file (5-second color bars via FFmpeg or fallback)."""
     import subprocess
 
     dir_path = os.path.join(settings.MEDIA_VOLUME, project_id, "videos")
@@ -114,7 +187,6 @@ def _mock_video(project_id: str, scene_id: str) -> str:
     filepath = os.path.join(dir_path, filename)
 
     try:
-        # Generate 5s test video with FFmpeg
         subprocess.run(
             [
                 "ffmpeg", "-y",
@@ -132,10 +204,8 @@ def _mock_video(project_id: str, scene_id: str) -> str:
             check=True,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
-        # Minimal fallback: write a tiny valid MP4 stub
-        # This is enough to pass validation but won't actually play
         with open(filepath, "wb") as f:
-            f.write(b"\x00" * 1024)  # placeholder
+            f.write(b"\x00" * 1024)
         logger.warning("FFmpeg not available, wrote placeholder MP4")
 
     return f"{project_id}/videos/{filename}"

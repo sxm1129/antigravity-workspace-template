@@ -41,13 +41,19 @@ class Settings(BaseSettings):
     # --- Media Volume ---
     MEDIA_VOLUME: str = "media_volume"
 
-    # --- AI Service Keys ---
+    # --- OpenRouter (Story AI + Image Gen) ---
+    OPENROUTER_API_KEY: str = ""
+    STORY_MODEL: str = "google/gemini-3-flash-preview"
+    IMAGE_MODEL: str = "google/gemini-2.5-flash-image"
+
+    # --- Volcengine Ark (Video Generation) ---
+    ARK_API_KEY: str = ""
+    ARK_VIDEO_MODEL: str = "doubao-seedance-1-0-lite-i2v-250428"
+    ARK_ENDPOINT: str = "https://ark.cn-beijing.volces.com/api/v3"
+
+    # --- Legacy keys (kept for backward compat) ---
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-pro"
-    NANO_BANANA_API_KEY: str = ""
-    NANO_BANANA_ENDPOINT: str = ""
-    SEEDANCE_API_KEY: str = ""
-    SEEDANCE_ENDPOINT: str = ""
 
     # --- IndexTTS ---
     INDEX_TTS_URL: str = "http://39.102.122.9:8049"
