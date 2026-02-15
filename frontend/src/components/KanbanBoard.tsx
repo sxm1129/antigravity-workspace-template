@@ -1,7 +1,8 @@
 "use client";
 
-import { type Project } from "@/lib/api";
+import { type Project, assetApi } from "@/lib/api";
 import { useProjectStore } from "@/stores/useProjectStore";
+import { useToastStore } from "@/stores/useToastStore";
 import SceneCard from "@/components/SceneCard";
 import {
   DndContext,
@@ -47,6 +48,7 @@ export default function KanbanBoard({ project }: { project: Project }) {
     refreshCurrentProject,
     loading,
   } = useProjectStore();
+  const addToast = useToastStore((s) => s.addToast);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -99,6 +101,24 @@ export default function KanbanBoard({ project }: { project: Project }) {
   ).length;
 
   const readyCount = scenes.filter((s) => s.status === "READY").length;
+  const reviewCount = scenes.filter((s) => s.status === "REVIEW").length;
+
+  const handleBatchApprove = async () => {
+    const reviewSceneIds = scenes
+      .filter((s) => s.status === "REVIEW")
+      .map((s) => s.id);
+    if (reviewSceneIds.length === 0) {
+      addToast("info", "没有待审核的场景");
+      return;
+    }
+    try {
+      const result = await assetApi.batchApprove(reviewSceneIds);
+      addToast("success", `已批量审核 ${result.approved} 个场景`);
+      refreshCurrentProject();
+    } catch (err: unknown) {
+      addToast("error", err instanceof Error ? err.message : "批量审核失败");
+    }
+  };
 
   return (
     <div style={{ padding: "24px" }}>
@@ -135,6 +155,16 @@ export default function KanbanBoard({ project }: { project: Project }) {
             >
               {loading ? <span className="spinner" /> : null}
               {phase.label}
+            </button>
+          )}
+          {project.status === "PRODUCTION" && reviewCount > 0 && (
+            <button
+              className="btn-primary"
+              onClick={handleBatchApprove}
+              disabled={loading}
+              style={{ flexShrink: 0, marginLeft: 12, background: "linear-gradient(135deg, #10b981, #059669)" }}
+            >
+              全部审核 ({reviewCount})
             </button>
           )}
         </div>

@@ -261,3 +261,49 @@ async def compose_final_video(
     task = compose_project_video.delay(req.project_id)
 
     return {"project_id": req.project_id, "task_id": task.id, "status": "composition_started"}
+
+
+class BatchApproveRequest(BaseModel):
+    scene_ids: list[str]
+
+
+@router.post("/batch-approve")
+async def batch_approve(req: BatchApproveRequest, db: AsyncSession = Depends(get_db)):
+    """Approve multiple scenes at once and trigger video generation for each.
+
+    Only scenes in REVIEW status will be approved.
+    """
+    approved = 0
+    for scene_id in req.scene_ids:
+        scene = await db.get(Scene, scene_id)
+        if not scene or scene.status != SceneStatus.REVIEW.value:
+            continue
+
+        # Check assets exist
+        has_image = bool(scene.local_image_path)
+        has_audio = bool(scene.local_audio_path)
+        if not has_image:
+            continue
+
+        scene.status = SceneStatus.APPROVED.value
+        approved += 1
+
+    await db.flush()
+
+    # Trigger video generation for each approved scene
+    tasks = []
+    for scene_id in req.scene_ids:
+        scene = await db.get(Scene, scene_id)
+        if scene and scene.status == SceneStatus.APPROVED.value:
+            from app.tasks.asset_tasks import generate_scene_video
+            task = generate_scene_video.delay(
+                scene.id,
+                scene.project_id,
+                scene.prompt_motion or "",
+                scene.local_image_path or "",
+                scene.local_audio_path,
+            )
+            tasks.append({"scene_id": scene.id, "task_id": task.id})
+
+    return {"approved": approved, "video_tasks": tasks}
+

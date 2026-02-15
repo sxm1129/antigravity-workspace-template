@@ -35,6 +35,12 @@ class Character(Base):
     nano_identity_refs: Mapped[Optional[list]] = mapped_column(
         JSON, nullable=True, default=list
     )
+    reference_image_path: Mapped[Optional[str]] = mapped_column(
+        String(1024), nullable=True
+    )
+    style_tags: Mapped[Optional[list]] = mapped_column(
+        JSON, nullable=True, default=list
+    )
 
     # Relationships
     project = relationship("Project", back_populates="characters")

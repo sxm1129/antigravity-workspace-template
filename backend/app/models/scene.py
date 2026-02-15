@@ -68,3 +68,6 @@ class Scene(Base):
 
     # Relationships
     project = relationship("Project", back_populates="scenes")
+    asset_versions = relationship(
+        "AssetVersion", back_populates="scene", cascade="all, delete-orphan"
+    )

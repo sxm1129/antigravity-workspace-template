@@ -188,11 +188,52 @@ export const assetApi = {
       body: JSON.stringify({ scene_id: sceneId }),
     }),
 
+  batchApprove: (sceneIds: string[]) =>
+    fetcher<{ approved: number }>("/api/assets/batch-approve", {
+      method: "POST",
+      body: JSON.stringify({ scene_ids: sceneIds }),
+    }),
+
   composeFinal: (projectId: string) =>
     fetcher<TaskDispatchResult>("/api/assets/compose-final", {
       method: "POST",
       body: JSON.stringify({ project_id: projectId }),
     }),
+};
+
+// ──────── Quick Draft API ────────
+
+export interface DraftProgress {
+  step: string;
+  current: number;
+  total: number;
+  desc: string;
+}
+
+export const quickDraftApi = {
+  start: (data: { title: string; logline: string; style?: string }) =>
+    fetcher<{ project_id: string; task_id: string }>("/api/quick-draft/", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  progress: (projectId: string) =>
+    fetcher<{ project_id: string; status: string; progress: DraftProgress | null }>(
+      `/api/quick-draft/${projectId}/progress`
+    ),
+};
+
+// ──────── Styles API ────────
+
+export interface StylePreset {
+  id: string;
+  name: string;
+  description: string;
+  templates: string[];
+}
+
+export const styleApi = {
+  list: () => fetcher<{ styles: StylePreset[] }>("/api/styles/"),
 };
 
 // ──────── Media URL helper ────────
@@ -201,3 +242,4 @@ export function mediaUrl(relativePath: string | null): string | null {
   if (!relativePath) return null;
   return `${API_BASE}/media/${relativePath}`;
 }
+

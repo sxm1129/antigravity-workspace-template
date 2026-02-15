@@ -9,6 +9,9 @@ from app.api.scenes import router as scenes_router
 from app.api.story import router as story_router
 from app.api.assets import router as assets_router
 from app.api.test_pipeline import router as test_router
+from app.api.quick_draft import router as quick_draft_router
+from app.api.styles import router as styles_router
+from app.api.metrics import router as metrics_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -18,3 +21,6 @@ api_router.include_router(scenes_router, prefix="/projects/{project_id}/scenes",
 api_router.include_router(story_router, prefix="/story", tags=["Story AI"])
 api_router.include_router(assets_router, prefix="/assets", tags=["Asset Generation"])
 api_router.include_router(test_router, prefix="/test", tags=["Test Pipeline"])
+api_router.include_router(quick_draft_router, tags=["Quick Draft"])
+api_router.include_router(styles_router, prefix="/styles", tags=["Styles"])
+api_router.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])

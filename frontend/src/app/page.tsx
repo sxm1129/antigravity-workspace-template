@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { useProjectStore } from "@/stores/useProjectStore";
 import ProjectCard from "@/components/ProjectCard";
+import QuickDraftWizard from "@/components/QuickDraftWizard";
 
 export default function HomePage() {
   const { projects, fetchProjects, createProject, loading, error, setError } = useProjectStore();
   const [showCreate, setShowCreate] = useState(false);
+  const [showQuickDraft, setShowQuickDraft] = useState(false);
   const [title, setTitle] = useState("");
   const [logline, setLogline] = useState("");
 
@@ -64,10 +66,21 @@ export default function HomePage() {
             ({projects.length})
           </span>
         </h2>
-        <button className="btn-primary" onClick={() => setShowCreate(!showCreate)}>
-          + 新建项目
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button
+            className="btn-primary"
+            onClick={() => setShowQuickDraft(true)}
+            style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
+          >
+            一键预览
+          </button>
+          <button className="btn-primary" onClick={() => setShowCreate(!showCreate)}>
+            + 新建项目
+          </button>
+        </div>
       </div>
+
+      <QuickDraftWizard open={showQuickDraft} onClose={() => setShowQuickDraft(false)} />
 
       {/* Create Project Form */}
       {showCreate && (

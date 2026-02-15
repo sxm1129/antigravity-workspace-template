@@ -60,6 +60,19 @@ class Settings(BaseSettings):
     INDEX_TTS_URL: str = "http://39.102.122.9:8049"
     INDEX_TTS_VOICE: str = "zh_male_tech"
 
+    # --- Quality Scoring ---
+    ENABLE_AUTO_SCORING: bool = False
+    QUALITY_THRESHOLD: float = 0.6
+    MAX_QUALITY_RETRIES: int = 2
+
+    # --- Video Provider Strategy ---
+    VIDEO_PROVIDERS: str = "seedance,ffmpeg"  # comma-separated, in priority order
+
+    # --- Convenience alias ---
+    @property
+    def OPENROUTER_MODEL(self) -> str:
+        return self.STORY_MODEL
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

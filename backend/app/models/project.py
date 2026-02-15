@@ -13,11 +13,18 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
+class ProjectMode(str, enum.Enum):
+    """Project creation mode."""
+    STANDARD = "STANDARD"
+    QUICK_DRAFT = "QUICK_DRAFT"
+
+
 class ProjectStatus(str, enum.Enum):
     """Project lifecycle statuses — supports forward and rollback transitions."""
 
     DRAFT = "DRAFT"
     OUTLINE_REVIEW = "OUTLINE_REVIEW"
+    CHARACTER_DESIGN = "CHARACTER_DESIGN"
     SCRIPT_REVIEW = "SCRIPT_REVIEW"
     STORYBOARD = "STORYBOARD"
     PRODUCTION = "PRODUCTION"
@@ -31,12 +38,13 @@ _STATUS_ORDER: list[ProjectStatus] = list(ProjectStatus)
 # Explicit valid transitions: status -> set of reachable statuses
 VALID_TRANSITIONS: dict[ProjectStatus, set[ProjectStatus]] = {
     ProjectStatus.DRAFT: {ProjectStatus.OUTLINE_REVIEW},
-    ProjectStatus.OUTLINE_REVIEW: {ProjectStatus.SCRIPT_REVIEW, ProjectStatus.DRAFT},
-    ProjectStatus.SCRIPT_REVIEW: {ProjectStatus.STORYBOARD, ProjectStatus.OUTLINE_REVIEW},
+    ProjectStatus.OUTLINE_REVIEW: {ProjectStatus.CHARACTER_DESIGN, ProjectStatus.SCRIPT_REVIEW, ProjectStatus.DRAFT},
+    ProjectStatus.CHARACTER_DESIGN: {ProjectStatus.SCRIPT_REVIEW, ProjectStatus.OUTLINE_REVIEW},
+    ProjectStatus.SCRIPT_REVIEW: {ProjectStatus.STORYBOARD, ProjectStatus.CHARACTER_DESIGN, ProjectStatus.OUTLINE_REVIEW},
     ProjectStatus.STORYBOARD: {ProjectStatus.PRODUCTION, ProjectStatus.SCRIPT_REVIEW},
     ProjectStatus.PRODUCTION: {ProjectStatus.COMPOSING, ProjectStatus.STORYBOARD},
     ProjectStatus.COMPOSING: {ProjectStatus.COMPLETED, ProjectStatus.PRODUCTION},
-    ProjectStatus.COMPLETED: set(),  # terminal state
+    ProjectStatus.COMPLETED: set(),
 }
 
 
@@ -64,6 +72,18 @@ class Project(Base):
     )
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default=ProjectStatus.DRAFT.value
+    )
+    mode: Mapped[str] = mapped_column(
+        String(50), nullable=False, default=ProjectMode.STANDARD.value
+    )
+    style_preset: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, default="default"
+    )
+    draft_progress: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True
+    )
+    final_video_path: Mapped[Optional[str]] = mapped_column(
+        String(1024), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
