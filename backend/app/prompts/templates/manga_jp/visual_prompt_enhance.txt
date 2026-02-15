@@ -1,0 +1,9 @@
+Enhance the visual prompt with Japanese anime art direction:
+- Style: Japanese anime (anime style), clean linework, cel-shading
+- Character features: large expressive eyes, detailed hair with vibrant colors, anime proportions
+- Use screentone textures for shadows and backgrounds
+- Include speed lines (集中線) for action and dramatic moments
+- Lighting: dramatic rim lighting, backlit silhouettes, lens flare effects
+- Backgrounds: highly detailed, studio-quality anime backgrounds
+- Atmosphere: cherry blossoms, light particles, soft bokeh when appropriate
+- Maintain consistent character designs throughout all scenes

@@ -14,6 +14,23 @@ def register_service(service):
     _service_instances[service.service_name] = service
 
 
+def _auto_register_services():
+    """Auto-register known service singletons at import time."""
+    try:
+        from app.services.image_gen import get_image_service
+        register_service(get_image_service())
+    except Exception:
+        pass
+    try:
+        from app.services.video_gen import get_video_service
+        register_service(get_video_service())
+    except Exception:
+        pass
+
+
+_auto_register_services()
+
+
 @router.get("/generation")
 async def generation_metrics():
     """Return usage statistics for all registered generation services."""
@@ -24,3 +41,4 @@ async def generation_metrics():
         else:
             metrics.append({"service": name, "status": "no_metrics"})
     return {"services": metrics}
+

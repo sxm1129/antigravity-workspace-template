@@ -4,15 +4,19 @@ from __future__ import annotations
 Gemini 2.5 Flash supports native image generation (multimodal output).
 We send a visual prompt and receive a generated image in the response.
 Images are saved to local media_volume.
+
+Refactored to extend BaseGenService for unified retry, fallback, and metrics.
 """
 
 import base64
 import logging
 import os
+from typing import Any
 
 import httpx
 
 from app.config import get_settings
+from app.services.base_gen_service import BaseGenService, GenServiceConfig
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -29,6 +33,51 @@ IMAGE_SYSTEM_PROMPT = """你是一位专业的漫画/动漫插画师。请根据
 - 人物外貌、表情、服装要精准还原描述"""
 
 
+class ImageGenService(BaseGenService[str]):
+    """Image generation service wrapping OpenRouter multimodal API.
+
+    Inherits retry, fallback, timeout, and cost tracking from BaseGenService.
+    """
+
+    service_name = "image_gen"
+
+    def __init__(self) -> None:
+        super().__init__(GenServiceConfig(
+            max_retries=2,
+            retry_delay=3.0,
+            timeout=180.0,
+            fallback_enabled=True,
+        ))
+
+    async def _generate(self, **kwargs: Any) -> str:
+        """Delegate to the core image generation logic."""
+        return await _generate_image_core(
+            prompt_visual=kwargs["prompt_visual"],
+            project_id=kwargs["project_id"],
+            scene_id=kwargs["scene_id"],
+            sfx_text=kwargs.get("sfx_text"),
+            identity_refs=kwargs.get("identity_refs"),
+        )
+
+    async def _fallback(self, **kwargs: Any) -> str:
+        """Fallback to mock image generation."""
+        logger.info("image_gen: using mock fallback for scene=%s", kwargs["scene_id"][:8])
+        return _mock_image(kwargs["project_id"], kwargs["scene_id"], kwargs["prompt_visual"])
+
+    def _estimate_cost(self, **kwargs: Any) -> float:
+        """Rough cost estimate per image generation call."""
+        return 0.02  # ~$0.02 per Gemini image gen call
+
+
+# Module-level singleton for metrics aggregation
+_image_service = ImageGenService()
+
+
+def get_image_service() -> ImageGenService:
+    """Return the singleton ImageGenService for metrics access."""
+    return _image_service
+
+
 async def generate_image(
     prompt_visual: str,
     project_id: str,
@@ -36,7 +85,28 @@ async def generate_image(
     sfx_text: str | None = None,
     identity_refs: list[str] | None = None,
 ) -> str:
-    """Generate an image for a scene and save to media_volume.
+    """Public API — delegates to ImageGenService for retry/fallback/metrics.
+
+    Backward-compatible with existing callers.
+    """
+    result = await _image_service.execute(
+        prompt_visual=prompt_visual,
+        project_id=project_id,
+        scene_id=scene_id,
+        sfx_text=sfx_text,
+        identity_refs=identity_refs,
+    )
+    return result.data
+
+
+async def _generate_image_core(
+    prompt_visual: str,
+    project_id: str,
+    scene_id: str,
+    sfx_text: str | None = None,
+    identity_refs: list[str] | None = None,
+) -> str:
+    """Core image generation logic — called by ImageGenService._generate().
 
     Args:
         prompt_visual: Visual prompt for image generation.

@@ -7,19 +7,73 @@ Async task pattern:
 3. Download result video when task completes
 
 Model: doubao-seedance-1-0-lite-i2v-250428
+
+Refactored to extend BaseGenService for unified retry, fallback, and metrics.
 """
 
 import asyncio
 import base64
 import logging
 import os
+from typing import Any
 
 import httpx
 
 from app.config import get_settings
+from app.services.base_gen_service import BaseGenService, GenServiceConfig
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+class VideoGenService(BaseGenService[str]):
+    """Video generation service wrapping Volcengine Seedance I2V API.
+
+    Inherits retry, fallback, timeout, and cost tracking from BaseGenService.
+    """
+
+    service_name = "video_gen"
+
+    def __init__(self) -> None:
+        super().__init__(GenServiceConfig(
+            max_retries=1,
+            retry_delay=5.0,
+            timeout=660.0,  # Seedance tasks can take 10+ min
+            fallback_enabled=True,
+        ))
+
+    async def _generate(self, **kwargs: Any) -> str:
+        """Delegate to core Seedance video generation."""
+        return await _generate_video_core(
+            prompt_motion=kwargs["prompt_motion"],
+            project_id=kwargs["project_id"],
+            scene_id=kwargs["scene_id"],
+            local_image_path=kwargs["local_image_path"],
+            local_audio_path=kwargs.get("local_audio_path"),
+        )
+
+    async def _fallback(self, **kwargs: Any) -> str:
+        """Fallback to FFmpeg image-to-video with Ken Burns effect."""
+        logger.info("video_gen: using FFmpeg fallback for scene=%s", kwargs["scene_id"][:8])
+        return _ffmpeg_image_to_video(
+            kwargs["project_id"],
+            kwargs["scene_id"],
+            kwargs["local_image_path"],
+            kwargs.get("local_audio_path"),
+        )
+
+    def _estimate_cost(self, **kwargs: Any) -> float:
+        """Rough cost estimate per video generation call."""
+        return 0.10  # ~$0.10 per Seedance I2V call
+
+
+# Module-level singleton for metrics aggregation
+_video_service = VideoGenService()
+
+
+def get_video_service() -> VideoGenService:
+    """Return the singleton VideoGenService for metrics access."""
+    return _video_service
 
 
 async def generate_video(
@@ -29,7 +83,28 @@ async def generate_video(
     local_image_path: str,
     local_audio_path: str | None = None,
 ) -> str:
-    """Generate a video for a scene using Volcengine Seedance I2V.
+    """Public API — delegates to VideoGenService for retry/fallback/metrics.
+
+    Backward-compatible with existing callers.
+    """
+    result = await _video_service.execute(
+        prompt_motion=prompt_motion,
+        project_id=project_id,
+        scene_id=scene_id,
+        local_image_path=local_image_path,
+        local_audio_path=local_audio_path,
+    )
+    return result.data
+
+
+async def _generate_video_core(
+    prompt_motion: str,
+    project_id: str,
+    scene_id: str,
+    local_image_path: str,
+    local_audio_path: str | None = None,
+) -> str:
+    """Core video generation via Volcengine Seedance I2V.
 
     Args:
         prompt_motion: Motion description prompt.
