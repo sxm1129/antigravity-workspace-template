@@ -102,52 +102,99 @@ async def generate_image(
 
     data = response.json()
 
-    # Parse response — look for inline image data
-    choice = data["choices"][0]["message"]
+    # Check for safety/content filter blocks
+    if data.get("error"):
+        raise RuntimeError(f"Image API error: {data['error']}")
+
+    choices = data.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"Image generation returned empty choices. Response keys: {list(data.keys())}")
+
+    choice = choices[0]
+    finish_reason = choice.get("finish_reason", "")
+    if finish_reason in ("content_filter", "safety"):
+        raise RuntimeError(
+            f"Image blocked by content filter (finish_reason={finish_reason}). "
+            "Try rephrasing the visual prompt."
+        )
+
+    message = choice.get("message", {})
     image_data = None
 
-    # OpenRouter returns images in a separate "images" array on the message
-    images_list = choice.get("images", [])
+    # Strategy 1: OpenRouter "images" array on the message
+    images_list = message.get("images", [])
     if images_list:
         for img_part in images_list:
             if img_part.get("type") == "image_url":
                 image_url = img_part.get("image_url", {}).get("url", "")
-                if image_url.startswith("data:"):
-                    b64_str = image_url.split(",", 1)[1] if "," in image_url else image_url
-                    image_data = base64.b64decode(b64_str)
-                elif image_url:
-                    image_data = await _download_bytes(image_url)
+                image_data = await _extract_image_from_url(image_url)
                 if image_data:
                     break
 
-    # Fallback: check multimodal content array (standard OpenAI format)
-    if not image_data and isinstance(choice.get("content"), list):
-        for part in choice["content"]:
+    # Strategy 2: Multimodal content array (standard OpenAI format)
+    if not image_data and isinstance(message.get("content"), list):
+        for part in message["content"]:
             if part.get("type") == "image_url":
-                image_url = part["image_url"]["url"]
-                if image_url.startswith("data:"):
-                    b64_str = image_url.split(",", 1)[1] if "," in image_url else image_url
+                url_obj = part.get("image_url", {})
+                image_url = url_obj.get("url", "") if isinstance(url_obj, dict) else str(url_obj)
+                image_data = await _extract_image_from_url(image_url)
+                if image_data:
+                    break
+            # Gemini inline_data format
+            if part.get("type") == "inline_data" or part.get("inline_data"):
+                inline = part.get("inline_data", part)
+                b64_str = inline.get("data", "")
+                if b64_str:
                     image_data = base64.b64decode(b64_str)
-                else:
-                    image_data = await _download_bytes(image_url)
-                break
+                    break
+
+    # Strategy 3: Content is a plain string with base64 data
+    if not image_data and isinstance(message.get("content"), str):
+        content_str = message["content"].strip()
+        # Check if the entire content is base64-encoded image data
+        if len(content_str) > 1000 and not content_str.startswith("{"):
+            try:
+                image_data = base64.b64decode(content_str)
+                # Validate it's actually an image (PNG/JPEG magic bytes)
+                if not (image_data[:4] == b'\x89PNG' or image_data[:2] == b'\xff\xd8'):
+                    image_data = None
+            except Exception:
+                image_data = None
 
     if not image_data:
+        content_preview = str(message.get("content", ""))[:200]
         logger.warning(
-            "Image model returned no image data. content_type=%s, images_count=%d, keys=%s",
-            type(choice.get("content")).__name__,
+            "Image model returned no image data. content_type=%s, images_count=%d, "
+            "finish_reason=%s, content_preview=%s",
+            type(message.get("content")).__name__,
             len(images_list),
-            list(data.keys()),
+            finish_reason,
+            content_preview,
         )
         raise RuntimeError(
             f"Image generation failed: model returned no image data. "
-            f"Response keys: {list(data.keys())}"
+            f"finish_reason={finish_reason}, content_type={type(message.get('content')).__name__}"
         )
 
     # Save to media_volume
     rel_path = _save_image(image_data, project_id, scene_id)
     logger.info("Image saved: %s (%d bytes)", rel_path, len(image_data))
     return rel_path
+
+
+async def _extract_image_from_url(image_url: str) -> bytes | None:
+    """Extract image bytes from a data URI or HTTP URL."""
+    if not image_url:
+        return None
+    try:
+        if image_url.startswith("data:"):
+            b64_str = image_url.split(",", 1)[1] if "," in image_url else image_url
+            return base64.b64decode(b64_str)
+        elif image_url.startswith("http"):
+            return await _download_bytes(image_url)
+    except Exception as e:
+        logger.warning("Failed to extract image from URL: %s", e)
+    return None
 
 
 async def _download_bytes(url: str) -> bytes:

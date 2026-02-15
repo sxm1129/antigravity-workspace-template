@@ -6,6 +6,7 @@ Each task:
 2. Releases DB connection
 3. Calls external API
 4. Opens new connection to write results
+5. Publishes status update via Redis Pub/Sub
 """
 
 import logging
@@ -34,8 +35,8 @@ def generate_scene_audio(self, scene_id: str, project_id: str, dialogue_text: st
         run_async(_update_scene_path(scene_id, "local_audio_path", rel_path))
         logger.info("Audio generated for scene %s: %s", scene_id, rel_path)
 
-        # Broadcast via WebSocket
-        run_async(_broadcast_scene_update(project_id, scene_id, "audio_done"))
+        # Broadcast via Redis Pub/Sub
+        _publish_scene_update(project_id, scene_id, "audio_done")
 
         return {"scene_id": scene_id, "audio_path": rel_path}
 
@@ -66,8 +67,8 @@ def generate_scene_image(
         run_async(_update_scene_status(scene_id, SceneStatus.REVIEW.value))
         logger.info("Image generated for scene %s: %s", scene_id, rel_path)
 
-        # Broadcast via WebSocket
-        run_async(_broadcast_scene_update(project_id, scene_id, SceneStatus.REVIEW.value))
+        # Broadcast via Redis Pub/Sub
+        _publish_scene_update(project_id, scene_id, SceneStatus.REVIEW.value)
 
         return {"scene_id": scene_id, "image_path": rel_path}
 
@@ -88,6 +89,7 @@ def generate_scene_video(
     """Generate a video for a scene.
 
     Includes Redis mutex lock to prevent duplicate expensive requests.
+    Lock is released before retry so the retry attempt can reacquire it.
     """
     import redis
 
@@ -105,7 +107,7 @@ def generate_scene_video(
         run_async(_update_scene_status(scene_id, SceneStatus.VIDEO_GEN.value))
 
         # Broadcast status change
-        run_async(_broadcast_scene_update(project_id, scene_id, SceneStatus.VIDEO_GEN.value))
+        _publish_scene_update(project_id, scene_id, SceneStatus.VIDEO_GEN.value)
 
         rel_path = run_async(
             generate_video(prompt_motion, project_id, scene_id, local_image_path, local_audio_path)
@@ -116,14 +118,17 @@ def generate_scene_video(
         logger.info("Video generated for scene %s: %s", scene_id, rel_path)
 
         # Broadcast final status
-        run_async(_broadcast_scene_update(project_id, scene_id, SceneStatus.READY.value))
+        _publish_scene_update(project_id, scene_id, SceneStatus.READY.value)
 
         return {"scene_id": scene_id, "video_path": rel_path}
 
     except Exception as exc:
         logger.error("Video generation failed for scene %s: %s", scene_id, exc)
+        # BUG-3 FIX: Release lock BEFORE retry so the retry can reacquire it
+        redis_client.delete(lock_key)
         raise self.retry(exc=exc)
-    finally:
+    else:
+        # Only release lock on success (not on retry)
         redis_client.delete(lock_key)
 
 
@@ -146,16 +151,11 @@ async def _update_scene_status(scene_id: str, status: str) -> None:
     await _update_scene_path(scene_id, "status", status)
 
 
-async def _broadcast_scene_update(project_id: str, scene_id: str, status: str) -> None:
-    """Broadcast scene status update via WebSocket (best-effort, non-blocking)."""
+def _publish_scene_update(project_id: str, scene_id: str, status: str) -> None:
+    """Publish scene status update via Redis Pub/Sub (sync, for Celery workers)."""
     try:
-        from app.api.ws import broadcast_to_project
-
-        await broadcast_to_project(project_id, {
-            "type": "scene_update",
-            "scene_id": scene_id,
-            "status": status,
-        })
+        from app.services.pubsub import publish_scene_update
+        publish_scene_update(project_id, scene_id, status)
     except Exception:
-        # WebSocket broadcast is best-effort, never fail the task
+        # Best-effort, never fail the task
         pass

@@ -7,6 +7,7 @@ In mock mode, returns canned responses for testing.
 
 import json
 import logging
+import re
 
 import httpx
 
@@ -110,12 +111,50 @@ async def parse_scenes(script: str) -> list[dict]:
         user_prompt=f"剧本：\n\n{script}",
         json_mode=True,
     )
+
+    # Robust JSON extraction: strip markdown code fences if present
+    json_text = _extract_json_text(response_text)
+
     try:
-        data = json.loads(response_text)
-        return data.get("scenes", [])
-    except json.JSONDecodeError:
-        logger.error("Failed to parse JSON response: %s", response_text[:500])
-        raise ValueError("AI returned invalid JSON for scene parsing")
+        data = json.loads(json_text)
+        scenes = data.get("scenes", data) if isinstance(data, dict) else data
+        if isinstance(scenes, list):
+            return scenes
+        raise ValueError(f"Expected list of scenes, got {type(scenes).__name__}")
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error("Failed to parse JSON response: %s\nRaw: %s", e, response_text[:500])
+        raise ValueError(f"AI returned invalid JSON for scene parsing: {e}")
+
+
+def _extract_json_text(text: str) -> str:
+    """Extract JSON from text that may be wrapped in markdown code fences.
+
+    Handles: ```json ... ```, ``` ... ```, and bare JSON.
+    """
+    # Try to extract from markdown code fence: ```json ... ``` or ``` ... ```
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if fence_match:
+        return fence_match.group(1).strip()
+
+    # Already bare JSON — strip whitespace
+    stripped = text.strip()
+    if stripped.startswith(("{", "[")):
+        return stripped
+
+    # Last resort: find first { or [ and last } or ]
+    first_brace = min(
+        (stripped.find(c) for c in ("{", "[") if stripped.find(c) != -1),
+        default=-1,
+    )
+    if first_brace != -1:
+        last_brace = max(
+            (stripped.rfind(c) for c in ("}", "]") if stripped.rfind(c) != -1),
+            default=-1,
+        )
+        if last_brace > first_brace:
+            return stripped[first_brace : last_brace + 1]
+
+    return stripped
 
 
 async def _call_openrouter(

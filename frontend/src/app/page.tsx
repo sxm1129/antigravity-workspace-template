@@ -5,10 +5,17 @@ import { useProjectStore } from "@/stores/useProjectStore";
 import ProjectCard from "@/components/ProjectCard";
 
 export default function HomePage() {
-  const { projects, fetchProjects, createProject, loading, error } = useProjectStore();
+  const { projects, fetchProjects, createProject, loading, error, setError } = useProjectStore();
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");
   const [logline, setLogline] = useState("");
+
+  // OPT-5: Auto-dismiss error after 8 seconds
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(null), 8000);
+    return () => clearTimeout(timer);
+  }, [error, setError]);
 
   useEffect(() => {
     fetchProjects();

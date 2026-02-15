@@ -21,7 +21,7 @@ pydantic-settings==2.8.1
 
 # Celery + Redis
 celery[redis]==5.4.0
-redis==5.2.1
+redis[hiredis]==5.2.1
 
 # Media
 ffmpeg-python==0.2.0

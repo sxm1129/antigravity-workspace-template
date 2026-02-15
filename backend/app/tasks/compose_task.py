@@ -75,13 +75,10 @@ async def _update_project_status(project_id: str, status: str) -> None:
 
 
 async def _broadcast_project_update(project_id: str, status: str) -> None:
-    """Broadcast project status update via WebSocket (best-effort)."""
+    """Publish project status update via Redis Pub/Sub (sync-safe wrapper)."""
     try:
-        from app.api.ws import broadcast_to_project
-
-        await broadcast_to_project(project_id, {
-            "type": "project_update",
-            "status": status,
-        })
+        from app.services.pubsub import publish_project_update
+        publish_project_update(project_id, status)
     except Exception:
         pass
+

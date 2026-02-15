@@ -12,8 +12,15 @@ export default function ProjectDetailPage(props: { params: Promise<PageParams> }
   const resolvedParams = use(props.params);
   const projectId = resolvedParams.id;
   const router = useRouter();
-  const { currentProject, fetchProject, loading, error } = useProjectStore();
+  const { currentProject, fetchProject, loading, error, setError } = useProjectStore();
   const [activeTab, setActiveTab] = useState<"writer" | "director">("writer");
+
+  // OPT-5: Auto-dismiss error after 8 seconds
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(null), 8000);
+    return () => clearTimeout(timer);
+  }, [error, setError]);
 
   useEffect(() => {
     fetchProject(projectId);

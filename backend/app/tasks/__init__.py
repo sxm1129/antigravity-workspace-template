@@ -39,15 +39,21 @@ celery_app.conf.beat_schedule = {
     },
 }
 
+import threading
+
+# Thread-local storage for event loop reuse within Celery workers
+_thread_local = threading.local()
+
 
 def run_async(coro):
-    """Shared helper to run async code in a sync Celery task.
+    """Run async code in a sync Celery task.
 
-    Creates a new event loop per call. All Celery tasks should use this
-    instead of defining their own version.
+    Reuses a thread-local event loop for efficiency — avoids creating
+    and closing a new loop for every DB update or API call within a
+    single Celery task execution.
     """
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    loop = getattr(_thread_local, "loop", None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        _thread_local.loop = loop
+    return loop.run_until_complete(coro)

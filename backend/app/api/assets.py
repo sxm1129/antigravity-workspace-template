@@ -197,6 +197,14 @@ async def approve_scene_and_generate_video(
         "local_audio_path": scene.local_audio_path,
     }
 
+    # BUG-7 FIX: Warn (but don't block) if audio not yet generated
+    audio_warning = None
+    if scene.dialogue_text and not scene.local_audio_path:
+        audio_warning = (
+            "Audio not yet generated for this scene. "
+            "Video will be created without dialogue audio."
+        )
+
     scene.status = SceneStatus.APPROVED.value
     await db.flush()
 
@@ -210,7 +218,11 @@ async def approve_scene_and_generate_video(
         scene_data["local_audio_path"],
     )
 
-    return {"scene_id": scene.id, "task_id": task.id, "status": "video_generation_started"}
+    result = {"scene_id": scene.id, "task_id": task.id, "status": "video_generation_started"}
+    if audio_warning:
+        result["warning"] = audio_warning
+
+    return result
 
 
 @router.post("/compose-final")

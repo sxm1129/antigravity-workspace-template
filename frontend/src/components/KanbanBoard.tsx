@@ -57,6 +57,11 @@ export default function KanbanBoard({ project }: { project: Project }) {
     const conn = connectProjectWS(project.id, (msg: WSMessage) => {
       if (msg.type === "scene_update" && msg.scene_id && msg.status) {
         updateSceneLocally(msg.scene_id, { status: msg.status });
+        // OPT-4 FIX: When a scene reaches REVIEW or READY, refresh from server
+        // to get the latest asset paths (image_path, video_path, etc.)
+        if (["REVIEW", "READY", "audio_done"].includes(msg.status)) {
+          refreshCurrentProject();
+        }
       }
       if (msg.type === "project_update") {
         refreshCurrentProject();
