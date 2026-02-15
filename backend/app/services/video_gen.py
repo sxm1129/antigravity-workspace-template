@@ -317,7 +317,7 @@ def _ffmpeg_image_to_video(
 
     # Ken Burns zoom: slowly zoom from 100% to 110% over 5 seconds
     zoom_filter = (
-        "scale=8000:-1,"
+        "scale=2560:-1,"
         "zoompan=z='min(zoom+0.002,1.1)':d=120:x='iw/2-(iw/zoom/2)'"
         ":y='ih/2-(ih/zoom/2)':s=1280x720:fps=24,"
         "setpts=PTS-STARTPTS"

@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   // This allows browser-side fetch("/api/...") to reach the backend without CORS issues.
   async rewrites() {
     const backendUrl =
-      process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
+      process.env.BACKEND_INTERNAL_URL || "http://localhost:9001";
     return [
       {
         source: "/api/:path*",

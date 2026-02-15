@@ -39,6 +39,7 @@ class ProjectRead(BaseModel):
     logline: str | None = None
     world_outline: str | None = None
     full_script: str | None = None
+    final_video_path: str | None = None
     status: str
     created_at: datetime
     updated_at: datetime

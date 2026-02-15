@@ -2,8 +2,6 @@
 
 import { type Scene, mediaUrl } from "@/lib/api";
 import { useProjectStore } from "@/stores/useProjectStore";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 
 const SCENE_STATUS: Record<string, { label: string; cls: string }> = {
   PENDING: { label: "待处理", cls: "badge-ideation" },
@@ -18,29 +16,12 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
   const { approveScene, regenerateImage } = useProjectStore();
   const status = SCENE_STATUS[scene.status] || { label: scene.status, cls: "badge-ideation" };
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: scene.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
   const imgSrc = mediaUrl(scene.local_image_path);
   const videoSrc = mediaUrl(scene.local_video_path);
 
   return (
     <div
-      ref={setNodeRef}
       style={{
-        ...style,
         background: "var(--bg-card)",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius-lg)",
@@ -49,22 +30,19 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
       }}
       className="fade-in"
     >
-      {/* Drag Handle */}
+      {/* Header */}
       <div
-        {...attributes}
-        {...listeners}
         style={{
           padding: "10px 16px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           borderBottom: "1px solid var(--border)",
-          cursor: "grab",
           background: "var(--bg-secondary)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "var(--text-muted)", cursor: "grab" }}>⠿</span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>⠿</span>
           <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
             镜头 {index + 1}
           </span>
@@ -161,6 +139,22 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
               style={{ padding: "8px 12px", fontSize: 12 }}
             >
               ↻ 重绘
+            </button>
+          </div>
+        )}
+
+        {/* Generate button for PENDING scenes */}
+        {scene.status === "PENDING" && (
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button
+              className="btn-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                regenerateImage(scene.id);
+              }}
+              style={{ flex: 1, justifyContent: "center", padding: "8px 12px", fontSize: 12 }}
+            >
+              🎨 生成素材
             </button>
           </div>
         )}

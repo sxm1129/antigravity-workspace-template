@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-import dynamic from "next/dynamic";
+import ClientProviders from "@/components/ClientProviders";
 import "./globals.css";
-
-const ToastContainer = dynamic(() => import("@/components/Toast"), { ssr: false });
 
 export const metadata: Metadata = {
   title: "MotionWeaver | 漫剧创作引擎",
@@ -79,7 +77,7 @@ export default function RootLayout({
         <main style={{ paddingTop: 56, minHeight: "100vh" }}>
           {children}
         </main>
-        <ToastContainer />
+        <ClientProviders />
       </body>
     </html>
   );

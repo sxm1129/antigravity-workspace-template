@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     STORY_MODEL: str = "google/gemini-3-flash-preview"
     IMAGE_MODEL: str = "google/gemini-2.5-flash-image"
 
+    # --- Flux (Private Deployment) ---
+    FLUX_API_BASE: str = "http://47.92.252.119:8080/api/v1"
+    FLUX_API_KEY: str = "fx-commonwtpKmZL6XPKFrqrnvDRszLxtjM0w62DHULzGfwqL2K"
+    FLUX_MODEL: str = "FLUX.1-schnell"
+    FLUX_TIMEOUT: int = 120
+
     # --- Volcengine Ark (Video Generation) ---
     ARK_API_KEY: str = ""
     ARK_VIDEO_MODEL: str = "doubao-seedance-1-0-lite-i2v-250428"
@@ -64,6 +70,9 @@ class Settings(BaseSettings):
     ENABLE_AUTO_SCORING: bool = False
     QUALITY_THRESHOLD: float = 0.6
     MAX_QUALITY_RETRIES: int = 2
+
+    # --- Image Provider Strategy ---
+    IMAGE_PROVIDERS: str = "flux,openrouter"  # comma-separated, in priority order
 
     # --- Video Provider Strategy ---
     VIDEO_PROVIDERS: str = "seedance,ffmpeg"  # comma-separated, in priority order

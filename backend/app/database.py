@@ -25,6 +25,7 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    connect_args={"connect_timeout": 30},
 )
 
 async_session_factory = async_sessionmaker(
@@ -69,27 +70,39 @@ async def init_db() -> None:
     Called once at application startup.
     Uses a separate connection without specifying a database to run CREATE DATABASE.
     """
+    import logging
     from urllib.parse import quote_plus
     from sqlalchemy import text
 
-    # Step 1: Ensure the database exists
-    admin_url = (
-        f"mysql+asyncmy://{settings.DB_USER}:{quote_plus(settings.DB_PASSWORD)}"
-        f"@{settings.DB_HOST}:{settings.DB_PORT}/?charset=utf8mb4"
-    )
-    admin_engine = create_async_engine(admin_url, echo=False)
-    try:
-        async with admin_engine.begin() as conn:
-            await conn.execute(text(
-                f"CREATE DATABASE IF NOT EXISTS `{settings.DB_NAME}` "
-                f"CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-            ))
-    finally:
-        await admin_engine.dispose()
+    logger = logging.getLogger(__name__)
 
-    # Step 2: Create all tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Step 1: Ensure the database exists
+    try:
+        admin_url = (
+            f"mysql+asyncmy://{settings.DB_USER}:{quote_plus(settings.DB_PASSWORD)}"
+            f"@{settings.DB_HOST}:{settings.DB_PORT}/?charset=utf8mb4"
+        )
+        admin_engine = create_async_engine(
+            admin_url, echo=False,
+            connect_args={"connect_timeout": 30},
+        )
+        try:
+            async with admin_engine.begin() as conn:
+                await conn.execute(text(
+                    f"CREATE DATABASE IF NOT EXISTS `{settings.DB_NAME}` "
+                    f"CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                ))
+        finally:
+            await admin_engine.dispose()
+    except Exception as e:
+        logger.warning(f"Could not create database (may already exist): {e}")
+
+    # Step 2: Create all tables (best-effort)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        logger.warning(f"Could not run create_all (tables may already exist): {e}")
 
 
 async def close_db() -> None:

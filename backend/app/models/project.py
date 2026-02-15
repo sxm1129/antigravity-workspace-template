@@ -44,7 +44,7 @@ VALID_TRANSITIONS: dict[ProjectStatus, set[ProjectStatus]] = {
     ProjectStatus.STORYBOARD: {ProjectStatus.PRODUCTION, ProjectStatus.SCRIPT_REVIEW},
     ProjectStatus.PRODUCTION: {ProjectStatus.COMPOSING, ProjectStatus.STORYBOARD},
     ProjectStatus.COMPOSING: {ProjectStatus.COMPLETED, ProjectStatus.PRODUCTION},
-    ProjectStatus.COMPLETED: set(),
+    ProjectStatus.COMPLETED: {ProjectStatus.SCRIPT_REVIEW},
 }
 
 

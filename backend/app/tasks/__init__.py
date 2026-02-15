@@ -27,8 +27,9 @@ celery_app.conf.update(
     timezone="Asia/Shanghai",
     enable_utc=True,
     task_track_started=True,
-    task_acks_late=True,
-    worker_prefetch_multiplier=1,
+    task_acks_late=True,               # ACK after task completes, not on receive
+    task_reject_on_worker_lost=True,    # Re-queue task if worker crashes/restarts
+    worker_prefetch_multiplier=1,       # Fetch one task at a time per worker
 )
 
 # Celery Beat schedule for cleanup — runs daily at 3:00 AM

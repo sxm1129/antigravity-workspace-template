@@ -1,9 +1,8 @@
 from __future__ import annotations
-"""Image generation service — uses Gemini 2.5 Flash via OpenRouter.
+"""Image generation service — multi-provider (Flux / OpenRouter).
 
-Gemini 2.5 Flash supports native image generation (multimodal output).
-We send a visual prompt and receive a generated image in the response.
-Images are saved to local media_volume.
+Supports pluggable image generation providers via IMAGE_PROVIDERS config.
+Providers are tried in priority order; on failure, the next provider is used.
 
 Refactored to extend BaseGenService for unified retry, fallback, and metrics.
 """
@@ -11,6 +10,7 @@ Refactored to extend BaseGenService for unified retry, fallback, and metrics.
 import base64
 import logging
 import os
+import random
 from typing import Any
 
 import httpx
@@ -108,30 +108,120 @@ async def _generate_image_core(
 ) -> str:
     """Core image generation logic — called by ImageGenService._generate().
 
-    Args:
-        prompt_visual: Visual prompt for image generation.
-        project_id: Project ID for directory organization.
-        scene_id: Scene ID for file naming.
-        sfx_text: Text to render on the image (SFX).
-        identity_refs: List of local paths to character reference images.
-
-    Returns:
-        Relative path to the generated image in media_volume.
+    Routes to the configured provider(s) in IMAGE_PROVIDERS order.
+    On failure, falls through to the next provider.
     """
     if settings.USE_MOCK_API:
         return _mock_image(project_id, scene_id, prompt_visual)
 
-    # Build the prompt with SFX text if provided
+    providers = [p.strip() for p in settings.IMAGE_PROVIDERS.split(",") if p.strip()]
+    last_error: Exception | None = None
+
+    for provider in providers:
+        try:
+            if provider == "flux":
+                return await _generate_via_flux(
+                    prompt_visual, project_id, scene_id,
+                )
+            elif provider == "openrouter":
+                return await _generate_via_openrouter(
+                    prompt_visual, project_id, scene_id,
+                    sfx_text=sfx_text, identity_refs=identity_refs,
+                )
+            else:
+                logger.warning("Unknown image provider: %s, skipping", provider)
+        except Exception as e:
+            logger.warning(
+                "image_gen provider=%s failed for scene=%s: %s",
+                provider, scene_id[:8], e,
+            )
+            last_error = e
+            continue
+
+    raise last_error or RuntimeError("No image providers configured")
+
+
+# ---------------------------------------------------------------------------
+# Provider: Flux (Private Deployment)
+# ---------------------------------------------------------------------------
+
+async def _generate_via_flux(
+    prompt_visual: str,
+    project_id: str,
+    scene_id: str,
+) -> str:
+    """Generate image via Flux private API (OpenAI-compatible images endpoint)."""
+    url = f"{settings.FLUX_API_BASE}/images/generations"
+    headers = {
+        "Authorization": f"Bearer {settings.FLUX_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    seed = random.randint(1, 2**32 - 1)
+    payload = {
+        "model": settings.FLUX_MODEL,
+        "prompt": prompt_visual,
+        "n": 1,
+        "size": "1920x1080",
+        "seed": seed,
+    }
+
+    logger.info(
+        "Calling Flux image model=%s for scene=%s (seed=%d)",
+        settings.FLUX_MODEL, scene_id[:8], seed,
+    )
+
+    async with httpx.AsyncClient(timeout=float(settings.FLUX_TIMEOUT)) as client:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+
+    result = response.json()
+    data_list = result.get("data", [])
+    if not data_list:
+        raise RuntimeError(f"Flux returned empty data. Response keys: {list(result.keys())}")
+
+    item = data_list[0]
+    image_data: bytes | None = None
+
+    # Handle b64_json response
+    if "b64_json" in item and item["b64_json"]:
+        image_data = base64.b64decode(item["b64_json"])
+
+    # Handle URL response
+    if not image_data and "url" in item and item["url"]:
+        image_data = await _download_bytes(item["url"])
+
+    if not image_data:
+        raise RuntimeError("Flux returned no image data (no b64_json or url)")
+
+    rel_path = _save_image(image_data, project_id, scene_id)
+    logger.info(
+        "Flux image saved: %s (%d bytes, seed=%d)",
+        rel_path, len(image_data), seed,
+    )
+    return rel_path
+
+
+# ---------------------------------------------------------------------------
+# Provider: OpenRouter (Gemini multimodal)
+# ---------------------------------------------------------------------------
+
+async def _generate_via_openrouter(
+    prompt_visual: str,
+    project_id: str,
+    scene_id: str,
+    sfx_text: str | None = None,
+    identity_refs: list[str] | None = None,
+) -> str:
+    """Generate image via OpenRouter multimodal API (Gemini 2.5 Flash)."""
     full_prompt = prompt_visual
     if sfx_text:
         full_prompt += f"\n\n画面上需要渲染的文字效果: {sfx_text}"
 
-    # Build messages for the image gen request
     messages: list[dict] = [
         {"role": "system", "content": IMAGE_SYSTEM_PROMPT},
     ]
 
-    # If identity reference images are provided, include them as context
     user_content: list[dict] = []
     if identity_refs:
         for ref_path in identity_refs:
@@ -172,7 +262,6 @@ async def _generate_image_core(
 
     data = response.json()
 
-    # Check for safety/content filter blocks
     if data.get("error"):
         raise RuntimeError(f"Image API error: {data['error']}")
 
@@ -191,7 +280,7 @@ async def _generate_image_core(
     message = choice.get("message", {})
     image_data = None
 
-    # Strategy 1: OpenRouter "images" array on the message
+    # Strategy 1: OpenRouter "images" array
     images_list = message.get("images", [])
     if images_list:
         for img_part in images_list:
@@ -201,7 +290,7 @@ async def _generate_image_core(
                 if image_data:
                     break
 
-    # Strategy 2: Multimodal content array (standard OpenAI format)
+    # Strategy 2: Multimodal content array
     if not image_data and isinstance(message.get("content"), list):
         for part in message["content"]:
             if part.get("type") == "image_url":
@@ -210,7 +299,6 @@ async def _generate_image_core(
                 image_data = await _extract_image_from_url(image_url)
                 if image_data:
                     break
-            # Gemini inline_data format
             if part.get("type") == "inline_data" or part.get("inline_data"):
                 inline = part.get("inline_data", part)
                 b64_str = inline.get("data", "")
@@ -218,14 +306,12 @@ async def _generate_image_core(
                     image_data = base64.b64decode(b64_str)
                     break
 
-    # Strategy 3: Content is a plain string with base64 data
+    # Strategy 3: Plain string base64
     if not image_data and isinstance(message.get("content"), str):
         content_str = message["content"].strip()
-        # Check if the entire content is base64-encoded image data
         if len(content_str) > 1000 and not content_str.startswith("{"):
             try:
                 image_data = base64.b64decode(content_str)
-                # Validate it's actually an image (PNG/JPEG magic bytes)
                 if not (image_data[:4] == b'\x89PNG' or image_data[:2] == b'\xff\xd8'):
                     image_data = None
             except Exception:
@@ -246,7 +332,6 @@ async def _generate_image_core(
             f"finish_reason={finish_reason}, content_type={type(message.get('content')).__name__}"
         )
 
-    # Save to media_volume
     rel_path = _save_image(image_data, project_id, scene_id)
     logger.info("Image saved: %s (%d bytes)", rel_path, len(image_data))
     return rel_path

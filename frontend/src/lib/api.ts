@@ -10,6 +10,7 @@ export interface Project {
   logline: string | null;
   world_outline: string | null;
   full_script: string | null;
+  final_video_path: string | null;
   status: string;
   created_at: string;
   updated_at: string;

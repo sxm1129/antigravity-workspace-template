@@ -48,6 +48,7 @@ interface ProjectStore {
 
   // ── Content ──
   saveProjectContent: (projectId: string, data: { world_outline?: string; full_script?: string }) => Promise<void>;
+  rollbackToWriter: (projectId: string) => Promise<void>;
 
   // ── Helpers ──
   setError: (err: string | null) => void;
@@ -224,8 +225,23 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       await assetApi.composeFinal(projectId);
-      const project = await projectApi.get(projectId);
-      set({ currentProject: project, loading: false });
+      // Poll until project status becomes COMPLETED (or timeout)
+      const maxAttempts = 150; // 5 minutes (2s intervals)
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const project = await projectApi.get(projectId);
+        set({ currentProject: project });
+        if (project.status === "COMPLETED") {
+          set({ loading: false });
+          return;
+        }
+        if (project.status !== "COMPOSING") {
+          // Unexpected status change
+          set({ loading: false });
+          return;
+        }
+      }
+      set({ loading: false, error: "合成超时，请检查后台日志" });
     } catch (e: unknown) {
       set({ error: (e as Error).message, loading: false });
     }
@@ -238,6 +254,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       await projectApi.update(projectId, data);
     } catch (e: unknown) {
       set({ error: (e as Error).message });
+    }
+  },
+
+  rollbackToWriter: async (projectId) => {
+    set({ loading: true, error: null });
+    try {
+      const project = await projectApi.advanceStatus(projectId, "SCRIPT_REVIEW");
+      const scenes = await sceneApi.list(projectId);
+      set({ currentProject: project, scenes, loading: false });
+    } catch (e: unknown) {
+      set({ error: (e as Error).message, loading: false });
     }
   },
 

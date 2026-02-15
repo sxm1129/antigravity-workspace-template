@@ -29,8 +29,8 @@ def compose_project_video(self, project_id: str):
 
         output_path = compose_final_video(project_id, scene_paths)
 
-        # Update project status to COMPLETED
-        run_async(_update_project_status(project_id, ProjectStatus.COMPLETED.value))
+        # Update project status to COMPLETED and save final video path
+        run_async(_update_project_status(project_id, ProjectStatus.COMPLETED.value, final_video_path=output_path))
 
         # Broadcast project completion via WebSocket
         run_async(_broadcast_project_update(project_id, ProjectStatus.COMPLETED.value))
@@ -60,16 +60,20 @@ async def _get_scene_video_paths(project_id: str) -> list[str]:
         return paths
 
 
-async def _update_project_status(project_id: str, status: str) -> None:
-    """Update project status."""
+async def _update_project_status(project_id: str, status: str, final_video_path: str | None = None) -> None:
+    """Update project status and optionally save final_video_path."""
     from sqlalchemy import update
 
     from app.database import async_session_factory
     from app.models.project import Project
 
+    values: dict = {"status": status}
+    if final_video_path is not None:
+        values["final_video_path"] = final_video_path
+
     async with async_session_factory() as session:
         await session.execute(
-            update(Project).where(Project.id == project_id).values(status=status)
+            update(Project).where(Project.id == project_id).values(**values)
         )
         await session.commit()
 
