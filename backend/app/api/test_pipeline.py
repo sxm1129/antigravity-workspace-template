@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.models.project import Project
-from app.models.scene import Scene
+from app.models.project import Project, ProjectStatus
+from app.models.scene import Scene, SceneStatus
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -57,14 +57,14 @@ async def run_full_pipeline(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # ----- Stage 1: Generate Outline (if not done) -----
-    if project.status == "IDEATION":
+    if project.status == ProjectStatus.DRAFT.value:
         from app.services.ai_writer import generate_outline
 
         logger.info("Stage 1: Generating outline for project %s", req.project_id)
         try:
             outline = await generate_outline(project.logline)
             project.world_outline = outline
-            project.status = "OUTLINE_REVIEW"
+            project.status = ProjectStatus.OUTLINE_REVIEW.value
             await db.flush()
             result.outline_length = len(outline)
         except Exception as e:
@@ -75,14 +75,14 @@ async def run_full_pipeline(
         result.outline_length = len(project.world_outline or "")
 
     # ----- Stage 2: Generate Script -----
-    if project.status == "OUTLINE_REVIEW":
+    if project.status == ProjectStatus.OUTLINE_REVIEW.value:
         from app.services.ai_writer import generate_script
 
         logger.info("Stage 2: Generating script for project %s", req.project_id)
         try:
             script = await generate_script(project.world_outline)
             project.full_script = script
-            project.status = "SCRIPT_REVIEW"
+            project.status = ProjectStatus.SCRIPT_REVIEW.value
             await db.flush()
             result.script_length = len(script)
         except Exception as e:
@@ -93,7 +93,7 @@ async def run_full_pipeline(
         result.script_length = len(project.full_script or "")
 
     # ----- Stage 3: Parse Scenes -----
-    if project.status == "SCRIPT_REVIEW":
+    if project.status == ProjectStatus.SCRIPT_REVIEW.value:
         from app.services.ai_writer import parse_scenes
 
         logger.info("Stage 3: Parsing scenes for project %s", req.project_id)
@@ -110,11 +110,11 @@ async def run_full_pipeline(
                     prompt_visual=scene_data.get("prompt_visual"),
                     prompt_motion=scene_data.get("prompt_motion"),
                     sfx_text=scene_data.get("sfx_text"),
-                    status="PENDING",
+                    status=SceneStatus.PENDING.value,
                 )
                 db.add(scene)
 
-            project.status = "STORYBOARDING"
+            project.status = ProjectStatus.STORYBOARD.value
             await db.flush()
         except Exception as e:
             result.errors.append(f"Parse scenes failed: {e}")
@@ -122,7 +122,7 @@ async def run_full_pipeline(
             return result
 
     # ----- Stage 4: Generate TTS + Images -----
-    if project.status in ("STORYBOARDING", "WAITING_ASSET_APPROVAL"):
+    if project.status in (ProjectStatus.STORYBOARD.value, ProjectStatus.PRODUCTION.value):
         scene_result = await db.execute(
             select(Scene)
             .where(Scene.project_id == req.project_id)
@@ -155,12 +155,12 @@ async def run_full_pipeline(
                         scene.sfx_text, None
                     )
                     scene.local_image_path = image_path
-                    scene.status = "WAITING_HUMAN_APPROVAL"
+                    scene.status = SceneStatus.REVIEW.value
                     result.images_generated += 1
                 except Exception as e:
                     result.errors.append(f"Image scene {scene.id[:8]}: {e}")
 
-        project.status = "WAITING_ASSET_APPROVAL"
+        project.status = ProjectStatus.PRODUCTION.value
         await db.flush()
 
     # ----- Stage 5: Generate Videos (optional) -----
@@ -189,7 +189,7 @@ async def run_full_pipeline(
                         scene.local_audio_path,
                     )
                     scene.local_video_path = video_path
-                    scene.status = "READY"
+                    scene.status = SceneStatus.READY.value
                     result.videos_generated += 1
                 except Exception as e:
                     result.errors.append(f"Video scene {scene.id[:8]}: {e}")
@@ -215,7 +215,7 @@ async def run_full_pipeline(
             try:
                 logger.info("Stage 6: Composing final video")
                 final_path = compose_final_video(req.project_id, video_paths)
-                project.status = "COMPLETED"
+                project.status = ProjectStatus.COMPLETED.value
                 result.final_video_path = final_path
             except Exception as e:
                 result.errors.append(f"Compose failed: {e}")

@@ -19,15 +19,15 @@ import { useEffect } from "react";
 import { connectProjectWS, type WSMessage } from "@/lib/ws";
 
 const PHASE_ACTIONS: Record<string, { label: string; description: string }> = {
-  STORYBOARDING: {
+  STORYBOARD: {
     label: "生成全部素材",
     description: "AI 将为每个镜头生成语音、图片素材。",
   },
-  WAITING_ASSET_APPROVAL: {
+  PRODUCTION: {
     label: "已审核的镜头 → 生成视频",
     description: "审核通过的镜头将自动触发视频生成。全部完成后可合成最终视频。",
   },
-  RENDERING: {
+  COMPOSING: {
     label: "合成最终视频",
     description: "所有镜头视频就绪, 合成完整漫剧视频。",
   },
@@ -82,16 +82,18 @@ export default function KanbanBoard({ project }: { project: Project }) {
   const phase = PHASE_ACTIONS[project.status];
 
   const handlePhaseAction = async () => {
-    if (project.status === "STORYBOARDING") {
+    if (project.status === "STORYBOARD") {
       await generateAllImages(project.id);
-    } else if (project.status === "RENDERING") {
+    } else if (project.status === "COMPOSING") {
       await composeFinal(project.id);
     }
   };
 
   const approvedCount = scenes.filter((s) =>
-    ["APPROVED", "VIDEO_DONE"].includes(s.status)
+    ["APPROVED", "VIDEO_GEN", "READY"].includes(s.status)
   ).length;
+
+  const readyCount = scenes.filter((s) => s.status === "READY").length;
 
   return (
     <div style={{ padding: "24px" }}>
@@ -115,9 +117,11 @@ export default function KanbanBoard({ project }: { project: Project }) {
               <span>总镜头: {scenes.length}</span>
               <span>|</span>
               <span>已审核: {approvedCount}</span>
+              <span>|</span>
+              <span>就绪: {readyCount}</span>
             </div>
           </div>
-          {project.status !== "COMPLETED" && project.status !== "WAITING_ASSET_APPROVAL" && (
+          {project.status !== "COMPLETED" && project.status !== "PRODUCTION" && (
             <button
               className="btn-primary"
               onClick={handlePhaseAction}

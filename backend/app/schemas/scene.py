@@ -1,7 +1,11 @@
 from __future__ import annotations
 """Pydantic v2 schemas for Scene model."""
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
+
+from app.models.scene import SceneStatus
 
 
 class SceneCreate(BaseModel):
@@ -28,7 +32,7 @@ class SceneUpdate(BaseModel):
     prompt_visual: str | None = None
     prompt_motion: str | None = None
     sfx_text: str | None = None
-    status: str | None = None
+    status: SceneStatus | None = None
 
 
 class SceneRead(BaseModel):

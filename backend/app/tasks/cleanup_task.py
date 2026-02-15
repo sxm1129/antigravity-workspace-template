@@ -5,26 +5,19 @@ Scans media_volume for COMPLETED projects older than 3 days.
 Deletes all intermediate files, keeping only final_output.mp4.
 """
 
-import asyncio
 import logging
 import os
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from celery import shared_task
 
 from app.config import get_settings
+from app.models.project import ProjectStatus
+from app.tasks import run_async
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-
-
-def _run_async(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 @shared_task
@@ -34,7 +27,7 @@ def cleanup_old_media():
     Keeps only final_output.mp4 for completed projects.
     Deletes audio/, images/, videos/ subdirectories.
     """
-    completed_projects = _run_async(_get_old_completed_projects())
+    completed_projects = run_async(_get_old_completed_projects())
 
     cleaned_count = 0
     freed_bytes = 0
@@ -77,12 +70,12 @@ async def _get_old_completed_projects() -> list[str]:
     from app.database import async_session_factory
     from app.models.project import Project
 
-    cutoff = datetime.utcnow() - timedelta(days=3)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=3)
 
     async with async_session_factory() as session:
         result = await session.execute(
             select(Project.id).where(
-                Project.status == "COMPLETED",
+                Project.status == ProjectStatus.COMPLETED.value,
                 Project.updated_at < cutoff,
             )
         )

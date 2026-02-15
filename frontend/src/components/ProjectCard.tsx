@@ -4,12 +4,12 @@ import { type Project } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 const STATUS_MAP: Record<string, { label: string; cls: string }> = {
-  IDEATION: { label: "构思", cls: "badge-ideation" },
+  DRAFT: { label: "草稿", cls: "badge-ideation" },
   OUTLINE_REVIEW: { label: "大纲审阅", cls: "badge-review" },
   SCRIPT_REVIEW: { label: "剧本审阅", cls: "badge-review" },
-  STORYBOARDING: { label: "分镜", cls: "badge-generating" },
-  WAITING_ASSET_APPROVAL: { label: "素材审核", cls: "badge-approval" },
-  RENDERING: { label: "渲染中", cls: "badge-rendering" },
+  STORYBOARD: { label: "分镜", cls: "badge-generating" },
+  PRODUCTION: { label: "制作中", cls: "badge-approval" },
+  COMPOSING: { label: "合成中", cls: "badge-rendering" },
   COMPLETED: { label: "已完成", cls: "badge-completed" },
 };
 

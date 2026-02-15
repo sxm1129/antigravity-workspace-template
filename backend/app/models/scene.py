@@ -1,6 +1,7 @@
 from __future__ import annotations
 """Scene ORM model — the atomic unit of a comic drama (one storyboard panel)."""
 
+import enum
 import uuid
 from typing import Optional
 
@@ -10,15 +11,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-# Scene status lifecycle
-SCENE_STATUSES = [
-    "PENDING",
-    "ASSET_GENERATING",
-    "WAITING_HUMAN_APPROVAL",
-    "APPROVED_BY_HUMAN",
-    "VIDEO_GENERATING",
-    "READY",
-]
+class SceneStatus(str, enum.Enum):
+    """Scene lifecycle statuses."""
+
+    PENDING = "PENDING"
+    GENERATING = "GENERATING"
+    REVIEW = "REVIEW"
+    APPROVED = "APPROVED"
+    VIDEO_GEN = "VIDEO_GEN"
+    READY = "READY"
 
 
 class Scene(Base):
@@ -62,7 +63,7 @@ class Scene(Base):
 
     # Scene status
     status: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="PENDING"
+        String(50), nullable=False, default=SceneStatus.PENDING.value
     )
 
     # Relationships

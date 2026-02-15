@@ -1,6 +1,7 @@
 from __future__ import annotations
-"""Project ORM model — represents a comic drama project with status state machine."""
+"""Project ORM model — represents a comic drama project with bidirectional state machine."""
 
+import enum
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -12,16 +13,31 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-# Valid status transitions (one-way flow)
-PROJECT_STATUSES = [
-    "IDEATION",
-    "OUTLINE_REVIEW",
-    "SCRIPT_REVIEW",
-    "STORYBOARDING",
-    "WAITING_ASSET_APPROVAL",
-    "RENDERING",
-    "COMPLETED",
-]
+class ProjectStatus(str, enum.Enum):
+    """Project lifecycle statuses — supports forward and rollback transitions."""
+
+    DRAFT = "DRAFT"
+    OUTLINE_REVIEW = "OUTLINE_REVIEW"
+    SCRIPT_REVIEW = "SCRIPT_REVIEW"
+    STORYBOARD = "STORYBOARD"
+    PRODUCTION = "PRODUCTION"
+    COMPOSING = "COMPOSING"
+    COMPLETED = "COMPLETED"
+
+
+# Ordered list for index-based navigation
+_STATUS_ORDER: list[ProjectStatus] = list(ProjectStatus)
+
+# Explicit valid transitions: status -> set of reachable statuses
+VALID_TRANSITIONS: dict[ProjectStatus, set[ProjectStatus]] = {
+    ProjectStatus.DRAFT: {ProjectStatus.OUTLINE_REVIEW},
+    ProjectStatus.OUTLINE_REVIEW: {ProjectStatus.SCRIPT_REVIEW, ProjectStatus.DRAFT},
+    ProjectStatus.SCRIPT_REVIEW: {ProjectStatus.STORYBOARD, ProjectStatus.OUTLINE_REVIEW},
+    ProjectStatus.STORYBOARD: {ProjectStatus.PRODUCTION, ProjectStatus.SCRIPT_REVIEW},
+    ProjectStatus.PRODUCTION: {ProjectStatus.COMPOSING, ProjectStatus.STORYBOARD},
+    ProjectStatus.COMPOSING: {ProjectStatus.COMPLETED, ProjectStatus.PRODUCTION},
+    ProjectStatus.COMPLETED: set(),  # terminal state
+}
 
 
 class Project(Base):
@@ -47,7 +63,7 @@ class Project(Base):
         LONGTEXT, nullable=True,
     )
     status: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="IDEATION"
+        String(50), nullable=False, default=ProjectStatus.DRAFT.value
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
@@ -68,9 +84,19 @@ class Project(Base):
     )
 
     def can_transition_to(self, target_status: str) -> bool:
-        """Check if the project can transition to the target status."""
-        if target_status not in PROJECT_STATUSES:
+        """Check if the project can transition to the target status (forward or rollback)."""
+        try:
+            current = ProjectStatus(self.status)
+            target = ProjectStatus(target_status)
+        except ValueError:
             return False
-        current_idx = PROJECT_STATUSES.index(self.status)
-        target_idx = PROJECT_STATUSES.index(target_status)
-        return target_idx == current_idx + 1
+        return target in VALID_TRANSITIONS.get(current, set())
+
+    def is_rollback(self, target_status: str) -> bool:
+        """Check if the target status is a rollback (moving backward)."""
+        try:
+            current_idx = _STATUS_ORDER.index(ProjectStatus(self.status))
+            target_idx = _STATUS_ORDER.index(ProjectStatus(target_status))
+        except (ValueError, IndexError):
+            return False
+        return target_idx < current_idx

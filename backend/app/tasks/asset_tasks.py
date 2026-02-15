@@ -8,24 +8,16 @@ Each task:
 4. Opens new connection to write results
 """
 
-import asyncio
 import logging
 
 from celery import shared_task
 
 from app.config import get_settings
+from app.models.scene import SceneStatus
+from app.tasks import run_async
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-
-
-def _run_async(coro):
-    """Helper to run async code in a sync Celery task."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
@@ -34,13 +26,17 @@ def generate_scene_audio(self, scene_id: str, project_id: str, dialogue_text: st
     try:
         from app.services.tts_service import synthesize_speech
 
-        rel_path = _run_async(
+        rel_path = run_async(
             synthesize_speech(dialogue_text, project_id, scene_id)
         )
 
         # Update scene in DB
-        _run_async(_update_scene_path(scene_id, "local_audio_path", rel_path))
+        run_async(_update_scene_path(scene_id, "local_audio_path", rel_path))
         logger.info("Audio generated for scene %s: %s", scene_id, rel_path)
+
+        # Broadcast via WebSocket
+        run_async(_broadcast_scene_update(project_id, scene_id, "audio_done"))
+
         return {"scene_id": scene_id, "audio_path": rel_path}
 
     except Exception as exc:
@@ -57,18 +53,22 @@ def generate_scene_image(
     sfx_text: str | None = None,
     identity_refs: list[str] | None = None,
 ):
-    """Generate an image for a scene using Nano Banana Pro."""
+    """Generate an image for a scene."""
     try:
         from app.services.image_gen import generate_image
 
-        rel_path = _run_async(
+        rel_path = run_async(
             generate_image(prompt_visual, project_id, scene_id, sfx_text, identity_refs)
         )
 
-        # Update scene in DB and set status to WAITING_HUMAN_APPROVAL
-        _run_async(_update_scene_path(scene_id, "local_image_path", rel_path))
-        _run_async(_update_scene_status(scene_id, "WAITING_HUMAN_APPROVAL"))
+        # Update scene in DB and set status to REVIEW
+        run_async(_update_scene_path(scene_id, "local_image_path", rel_path))
+        run_async(_update_scene_status(scene_id, SceneStatus.REVIEW.value))
         logger.info("Image generated for scene %s: %s", scene_id, rel_path)
+
+        # Broadcast via WebSocket
+        run_async(_broadcast_scene_update(project_id, scene_id, SceneStatus.REVIEW.value))
+
         return {"scene_id": scene_id, "image_path": rel_path}
 
     except Exception as exc:
@@ -85,7 +85,7 @@ def generate_scene_video(
     local_image_path: str,
     local_audio_path: str | None = None,
 ):
-    """Generate a video for a scene using Seedance 2.0.
+    """Generate a video for a scene.
 
     Includes Redis mutex lock to prevent duplicate expensive requests.
     """
@@ -102,15 +102,22 @@ def generate_scene_video(
     try:
         from app.services.video_gen import generate_video
 
-        _run_async(_update_scene_status(scene_id, "VIDEO_GENERATING"))
+        run_async(_update_scene_status(scene_id, SceneStatus.VIDEO_GEN.value))
 
-        rel_path = _run_async(
+        # Broadcast status change
+        run_async(_broadcast_scene_update(project_id, scene_id, SceneStatus.VIDEO_GEN.value))
+
+        rel_path = run_async(
             generate_video(prompt_motion, project_id, scene_id, local_image_path, local_audio_path)
         )
 
-        _run_async(_update_scene_path(scene_id, "local_video_path", rel_path))
-        _run_async(_update_scene_status(scene_id, "READY"))
+        run_async(_update_scene_path(scene_id, "local_video_path", rel_path))
+        run_async(_update_scene_status(scene_id, SceneStatus.READY.value))
         logger.info("Video generated for scene %s: %s", scene_id, rel_path)
+
+        # Broadcast final status
+        run_async(_broadcast_scene_update(project_id, scene_id, SceneStatus.READY.value))
+
         return {"scene_id": scene_id, "video_path": rel_path}
 
     except Exception as exc:
@@ -137,3 +144,18 @@ async def _update_scene_path(scene_id: str, field: str, value: str) -> None:
 async def _update_scene_status(scene_id: str, status: str) -> None:
     """Update scene status."""
     await _update_scene_path(scene_id, "status", status)
+
+
+async def _broadcast_scene_update(project_id: str, scene_id: str, status: str) -> None:
+    """Broadcast scene status update via WebSocket (best-effort, non-blocking)."""
+    try:
+        from app.api.ws import broadcast_to_project
+
+        await broadcast_to_project(project_id, {
+            "type": "scene_update",
+            "scene_id": scene_id,
+            "status": status,
+        })
+    except Exception:
+        # WebSocket broadcast is best-effort, never fail the task
+        pass

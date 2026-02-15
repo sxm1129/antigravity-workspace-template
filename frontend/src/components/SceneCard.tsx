@@ -6,16 +6,16 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
 const SCENE_STATUS: Record<string, { label: string; cls: string }> = {
-  DRAFT: { label: "草稿", cls: "badge-ideation" },
-  TTS_DONE: { label: "语音就绪", cls: "badge-generating" },
-  IMAGE_DONE: { label: "图片就绪", cls: "badge-approval" },
-  VIDEO_DONE: { label: "视频就绪", cls: "badge-ready" },
-  APPROVED: { label: "已审核", cls: "badge-completed" },
+  PENDING: { label: "待处理", cls: "badge-ideation" },
   GENERATING: { label: "生成中", cls: "badge-rendering" },
+  REVIEW: { label: "待审核", cls: "badge-approval" },
+  APPROVED: { label: "已审核", cls: "badge-completed" },
+  VIDEO_GEN: { label: "视频生成中", cls: "badge-generating" },
+  READY: { label: "就绪", cls: "badge-ready" },
 };
 
 export default function SceneCard({ scene, index }: { scene: Scene; index: number }) {
-  const { approveScene } = useProjectStore();
+  const { approveScene, regenerateImage } = useProjectStore();
   const status = SCENE_STATUS[scene.status] || { label: scene.status, cls: "badge-ideation" };
 
   const {
@@ -139,8 +139,8 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
           </p>
         )}
 
-        {/* Action Buttons */}
-        {scene.status === "IMAGE_DONE" && (
+        {/* Action Buttons — show when scene is in REVIEW status */}
+        {scene.status === "REVIEW" && (
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <button
               className="btn-success"
@@ -154,7 +154,10 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
             </button>
             <button
               className="btn-secondary"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                regenerateImage(scene.id);
+              }}
               style={{ padding: "8px 12px", fontSize: 12 }}
             >
               ↻ 重绘
@@ -162,14 +165,14 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
           </div>
         )}
 
-        {scene.status === "GENERATING" && (
+        {(scene.status === "GENERATING" || scene.status === "VIDEO_GEN") && (
           <div style={{
             display: "flex", alignItems: "center", gap: 8,
             color: "var(--accent-primary-light)", fontSize: 12, fontWeight: 500,
             marginTop: 8,
           }}>
             <span className="spinner" style={{ width: 14, height: 14 }} />
-            生成中...
+            {scene.status === "GENERATING" ? "素材生成中..." : "视频生成中..."}
           </div>
         )}
       </div>

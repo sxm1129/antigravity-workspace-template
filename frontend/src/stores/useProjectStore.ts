@@ -43,12 +43,17 @@ interface ProjectStore {
   // ── Assets ──
   generateAllImages: (projectId: string) => Promise<void>;
   approveScene: (sceneId: string) => Promise<void>;
+  regenerateImage: (sceneId: string) => Promise<void>;
   composeFinal: (projectId: string) => Promise<void>;
+
+  // ── Content ──
+  saveProjectContent: (projectId: string, data: { world_outline?: string; full_script?: string }) => Promise<void>;
 
   // ── Helpers ──
   setError: (err: string | null) => void;
   updateSceneLocally: (sceneId: string, patch: Partial<Scene>) => void;
   refreshCurrentProject: () => Promise<void>;
+  clearCurrentProject: () => void;
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
@@ -86,7 +91,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   fetchProject: async (id) => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, currentProject: null, scenes: [], characters: [] });
     try {
       const project = await projectApi.get(id);
       set({ currentProject: project, loading: false });
@@ -226,6 +231,30 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
   },
 
+  // ── Content ──
+
+  saveProjectContent: async (projectId, data) => {
+    try {
+      await projectApi.update(projectId, data);
+    } catch (e: unknown) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  regenerateImage: async (sceneId) => {
+    try {
+      await assetApi.regenerateImage(sceneId);
+      // Update scene status locally to show spinner
+      set((s) => ({
+        scenes: s.scenes.map((sc) =>
+          sc.id === sceneId ? { ...sc, status: "GENERATING" } : sc
+        ),
+      }));
+    } catch (e: unknown) {
+      set({ error: (e as Error).message });
+    }
+  },
+
   // ── Helpers ──
 
   updateSceneLocally: (sceneId, patch) => {
@@ -246,5 +275,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     } catch (e: unknown) {
       set({ error: (e as Error).message });
     }
+  },
+
+  clearCurrentProject: () => {
+    set({ currentProject: null, scenes: [], characters: [], error: null });
   },
 }));

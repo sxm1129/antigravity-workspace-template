@@ -10,9 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.scene import Scene
+from app.models.scene import Scene, SceneStatus
 from app.models.character import Character
-from app.models.project import Project
+from app.models.project import Project, ProjectStatus
 
 router = APIRouter()
 
@@ -43,23 +43,23 @@ async def generate_all_scene_images(
 ):
     """Dispatch TTS + image generation tasks for ALL pending scenes in a project.
 
-    Transitions project to WAITING_ASSET_APPROVAL.
+    Transitions project to PRODUCTION.
     """
     project = await db.get(Project, req.project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if project.status not in ("STORYBOARDING", "WAITING_ASSET_APPROVAL"):
+    if project.status not in (ProjectStatus.STORYBOARD.value, ProjectStatus.PRODUCTION.value):
         raise HTTPException(
             status_code=400,
-            detail=f"Project must be in STORYBOARDING status (current: {project.status})",
+            detail=f"Project must be in STORYBOARD status (current: {project.status})",
         )
 
     # Get all pending scenes
     result = await db.execute(
         select(Scene).where(
             Scene.project_id == req.project_id,
-            Scene.status == "PENDING",
+            Scene.status == SceneStatus.PENDING.value,
         ).order_by(Scene.sequence_order)
     )
     scenes = result.scalars().all()
@@ -89,11 +89,11 @@ async def generate_all_scene_images(
         for s in scenes
     ]
 
-    # Update scenes to ASSET_GENERATING
+    # Update scenes to GENERATING
     for s in scenes:
-        s.status = "ASSET_GENERATING"
+        s.status = SceneStatus.GENERATING.value
 
-    project.status = "WAITING_ASSET_APPROVAL"
+    project.status = ProjectStatus.PRODUCTION.value
     await db.flush()
 
     # Dispatch Celery tasks (after DB is released by endpoint return)
@@ -151,7 +151,7 @@ async def regenerate_scene_image(
         "sfx_text": scene.sfx_text,
     }
 
-    scene.status = "ASSET_GENERATING"
+    scene.status = SceneStatus.GENERATING.value
     await db.flush()
 
     from app.tasks.asset_tasks import generate_scene_image
@@ -180,10 +180,10 @@ async def approve_scene_and_generate_video(
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
 
-    if scene.status != "WAITING_HUMAN_APPROVAL":
+    if scene.status != SceneStatus.REVIEW.value:
         raise HTTPException(
             status_code=400,
-            detail=f"Scene must be in WAITING_HUMAN_APPROVAL status (current: {scene.status})",
+            detail=f"Scene must be in REVIEW status (current: {scene.status})",
         )
 
     if not scene.local_image_path:
@@ -197,7 +197,7 @@ async def approve_scene_and_generate_video(
         "local_audio_path": scene.local_audio_path,
     }
 
-    scene.status = "APPROVED_BY_HUMAN"
+    scene.status = SceneStatus.APPROVED.value
     await db.flush()
 
     from app.tasks.asset_tasks import generate_scene_video
@@ -219,7 +219,7 @@ async def compose_final_video(
 ):
     """Trigger final video composition when all scenes are READY.
 
-    Transitions project to RENDERING.
+    Transitions project to COMPOSING.
     """
     project = await db.get(Project, req.project_id)
     if not project:
@@ -234,14 +234,14 @@ async def compose_final_video(
     if not scenes:
         raise HTTPException(status_code=400, detail="No scenes in project")
 
-    not_ready = [s for s in scenes if s.status != "READY"]
+    not_ready = [s for s in scenes if s.status != SceneStatus.READY.value]
     if not_ready:
         raise HTTPException(
             status_code=400,
             detail=f"{len(not_ready)} scenes are not READY yet",
         )
 
-    project.status = "RENDERING"
+    project.status = ProjectStatus.COMPOSING.value
     await db.flush()
 
     from app.tasks.compose_task import compose_project_video

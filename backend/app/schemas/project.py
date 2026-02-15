@@ -2,8 +2,11 @@ from __future__ import annotations
 """Pydantic v2 schemas for Project model."""
 
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, Field
+
+from app.models.project import ProjectStatus
 
 
 class ProjectCreate(BaseModel):
@@ -23,9 +26,9 @@ class ProjectUpdate(BaseModel):
 
 
 class ProjectStatusUpdate(BaseModel):
-    """Schema for advancing a project's status."""
+    """Schema for advancing or rolling back a project's status."""
 
-    target_status: str
+    target_status: ProjectStatus
 
 
 class ProjectRead(BaseModel):

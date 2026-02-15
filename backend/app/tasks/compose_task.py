@@ -1,21 +1,14 @@
 from __future__ import annotations
 """Celery task for FFmpeg final video composition."""
 
-import asyncio
 import logging
 
 from celery import shared_task
 
+from app.models.project import ProjectStatus
+from app.tasks import run_async
+
 logger = logging.getLogger(__name__)
-
-
-def _run_async(coro):
-    """Helper to run async code in a sync Celery task."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 @shared_task(bind=True, max_retries=1)
@@ -26,7 +19,7 @@ def compose_project_video(self, project_id: str):
     """
     try:
         # Get all scene video paths ordered by sequence
-        scene_paths = _run_async(_get_scene_video_paths(project_id))
+        scene_paths = run_async(_get_scene_video_paths(project_id))
 
         if not scene_paths:
             logger.warning("No scene videos found for project %s", project_id)
@@ -37,7 +30,10 @@ def compose_project_video(self, project_id: str):
         output_path = compose_final_video(project_id, scene_paths)
 
         # Update project status to COMPLETED
-        _run_async(_update_project_status(project_id, "COMPLETED"))
+        run_async(_update_project_status(project_id, ProjectStatus.COMPLETED.value))
+
+        # Broadcast project completion via WebSocket
+        run_async(_broadcast_project_update(project_id, ProjectStatus.COMPLETED.value))
 
         logger.info("Project %s video composed: %s", project_id, output_path)
         return {"project_id": project_id, "output_path": output_path}
@@ -52,12 +48,12 @@ async def _get_scene_video_paths(project_id: str) -> list[str]:
     from sqlalchemy import select
 
     from app.database import async_session_factory
-    from app.models.scene import Scene
+    from app.models.scene import Scene, SceneStatus
 
     async with async_session_factory() as session:
         result = await session.execute(
             select(Scene.local_video_path)
-            .where(Scene.project_id == project_id, Scene.status == "READY")
+            .where(Scene.project_id == project_id, Scene.status == SceneStatus.READY.value)
             .order_by(Scene.sequence_order)
         )
         paths = [row[0] for row in result.fetchall() if row[0]]
@@ -76,3 +72,16 @@ async def _update_project_status(project_id: str, status: str) -> None:
             update(Project).where(Project.id == project_id).values(status=status)
         )
         await session.commit()
+
+
+async def _broadcast_project_update(project_id: str, status: str) -> None:
+    """Broadcast project status update via WebSocket (best-effort)."""
+    try:
+        from app.api.ws import broadcast_to_project
+
+        await broadcast_to_project(project_id, {
+            "type": "project_update",
+            "status": status,
+        })
+    except Exception:
+        pass

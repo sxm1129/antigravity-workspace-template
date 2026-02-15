@@ -13,11 +13,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.project import Project
-from app.models.scene import Scene
+from app.models.project import Project, ProjectStatus
+from app.models.scene import Scene, SceneStatus
 from app.services import ai_writer
 
 router = APIRouter()
@@ -48,17 +49,17 @@ async def generate_outline(
 ):
     """Stage 1: Generate world outline from logline using Gemini.
 
-    Requires project in IDEATION status.
+    Requires project in DRAFT status.
     After generation, advances to OUTLINE_REVIEW for human approval.
     """
     project = await db.get(Project, req.project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if project.status != "IDEATION":
+    if project.status != ProjectStatus.DRAFT.value:
         raise HTTPException(
             status_code=400,
-            detail=f"Project must be in IDEATION status (current: {project.status})",
+            detail=f"Project must be in DRAFT status (current: {project.status})",
         )
 
     if not project.logline:
@@ -73,7 +74,7 @@ async def generate_outline(
 
     # Write result back with a new DB operation
     project.world_outline = outline
-    project.status = "OUTLINE_REVIEW"
+    project.status = ProjectStatus.OUTLINE_REVIEW.value
     await db.flush()
     await db.refresh(project)
 
@@ -97,7 +98,7 @@ async def generate_script(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if project.status != "OUTLINE_REVIEW":
+    if project.status != ProjectStatus.OUTLINE_REVIEW.value:
         raise HTTPException(
             status_code=400,
             detail=f"Project must be in OUTLINE_REVIEW status (current: {project.status})",
@@ -112,7 +113,7 @@ async def generate_script(
     script = await ai_writer.generate_script(outline)
 
     project.full_script = script
-    project.status = "SCRIPT_REVIEW"
+    project.status = ProjectStatus.SCRIPT_REVIEW.value
     await db.flush()
     await db.refresh(project)
 
@@ -131,13 +132,15 @@ async def parse_scenes(
 
     Requires project in SCRIPT_REVIEW status.
     Forces JSON mode on AI to extract visual/motion prompts.
-    After parsing, advances to STORYBOARDING.
+    After parsing, advances to STORYBOARD.
+
+    NOTE: Clears any existing scenes for this project before creating new ones.
     """
     project = await db.get(Project, req.project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if project.status != "SCRIPT_REVIEW":
+    if project.status != ProjectStatus.SCRIPT_REVIEW.value:
         raise HTTPException(
             status_code=400,
             detail=f"Project must be in SCRIPT_REVIEW status (current: {project.status})",
@@ -151,6 +154,9 @@ async def parse_scenes(
     # Parse scenes via AI
     scenes_data = await ai_writer.parse_scenes(script)
 
+    # Clear existing scenes for this project before inserting new ones (BUG-9 fix)
+    await db.execute(delete(Scene).where(Scene.project_id == project.id))
+
     # Bulk insert scenes
     for scene_data in scenes_data:
         scene = Scene(
@@ -161,11 +167,11 @@ async def parse_scenes(
             prompt_visual=scene_data.get("prompt_visual"),
             prompt_motion=scene_data.get("prompt_motion"),
             sfx_text=scene_data.get("sfx_text"),
-            status="PENDING",
+            status=SceneStatus.PENDING.value,
         )
         db.add(scene)
 
-    project.status = "STORYBOARDING"
+    project.status = ProjectStatus.STORYBOARD.value
     await db.flush()
     await db.refresh(project)
 
