@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     MEDIA_VOLUME: str = "media_volume"
 
     # --- OpenRouter (Story AI + Image Gen) ---
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_API_KEY: str = ""
     STORY_MODEL: str = "google/gemini-3-flash-preview"
     IMAGE_MODEL: str = "google/gemini-2.5-flash-image"

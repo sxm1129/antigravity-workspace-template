@@ -17,7 +17,7 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_URL = f"{settings.OPENROUTER_BASE_URL}/chat/completions"
 
 IMAGE_SYSTEM_PROMPT = """你是一位专业的漫画/动漫插画师。请根据用户提供的详细画面描述，
 生成一张高质量的漫剧风格插画。
@@ -89,6 +89,7 @@ async def generate_image(
     body = {
         "model": settings.IMAGE_MODEL,
         "messages": messages,
+        "modalities": ["text", "image"],
         "temperature": 0.8,
         "max_tokens": 4096,
     }
@@ -105,24 +106,39 @@ async def generate_image(
     choice = data["choices"][0]["message"]
     image_data = None
 
-    # Check for multimodal content (inline_data format)
-    if isinstance(choice.get("content"), list):
+    # OpenRouter returns images in a separate "images" array on the message
+    images_list = choice.get("images", [])
+    if images_list:
+        for img_part in images_list:
+            if img_part.get("type") == "image_url":
+                image_url = img_part.get("image_url", {}).get("url", "")
+                if image_url.startswith("data:"):
+                    b64_str = image_url.split(",", 1)[1] if "," in image_url else image_url
+                    image_data = base64.b64decode(b64_str)
+                elif image_url:
+                    image_data = await _download_bytes(image_url)
+                if image_data:
+                    break
+
+    # Fallback: check multimodal content array (standard OpenAI format)
+    if not image_data and isinstance(choice.get("content"), list):
         for part in choice["content"]:
             if part.get("type") == "image_url":
                 image_url = part["image_url"]["url"]
                 if image_url.startswith("data:"):
-                    # Inline base64 image
                     b64_str = image_url.split(",", 1)[1] if "," in image_url else image_url
                     image_data = base64.b64decode(b64_str)
                 else:
-                    # External URL — download it
                     image_data = await _download_bytes(image_url)
                 break
-    elif isinstance(choice.get("content"), str):
-        # Text-only response — Gemini might return text description instead of image
-        logger.warning("Image model returned text instead of image: %s", choice["content"][:200])
 
     if not image_data:
+        logger.warning(
+            "Image model returned no image data. content_type=%s, images_count=%d, keys=%s",
+            type(choice.get("content")).__name__,
+            len(images_list),
+            list(data.keys()),
+        )
         raise RuntimeError(
             f"Image generation failed: model returned no image data. "
             f"Response keys: {list(data.keys())}"

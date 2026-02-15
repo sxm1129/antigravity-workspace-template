@@ -44,6 +44,11 @@ async def generate_video(
     if settings.USE_MOCK_API:
         return _mock_video(project_id, scene_id)
 
+    # Fallback to FFmpeg I2V if no ARK_API_KEY
+    if not settings.ARK_API_KEY:
+        logger.warning("No ARK_API_KEY set, using FFmpeg image-to-video fallback")
+        return _ffmpeg_image_to_video(project_id, scene_id, local_image_path, local_audio_path)
+
     # Read local image as Base64 for URL embedding
     image_full_path = os.path.join(settings.MEDIA_VOLUME, local_image_path)
     with open(image_full_path, "rb") as f:
@@ -208,4 +213,80 @@ def _mock_video(project_id: str, scene_id: str) -> str:
             f.write(b"\x00" * 1024)
         logger.warning("FFmpeg not available, wrote placeholder MP4")
 
+    return f"{project_id}/videos/{filename}"
+
+
+def _ffmpeg_image_to_video(
+    project_id: str,
+    scene_id: str,
+    local_image_path: str,
+    local_audio_path: str | None = None,
+) -> str:
+    """Create a video from an image using FFmpeg with Ken Burns zoom effect.
+
+    Generates a 5-second 720p video with a slow zoom-in effect from the image.
+    Optionally overlays audio if available.
+    """
+    import subprocess
+
+    dir_path = os.path.join(settings.MEDIA_VOLUME, project_id, "videos")
+    os.makedirs(dir_path, exist_ok=True)
+
+    filename = f"{scene_id}.mp4"
+    filepath = os.path.join(dir_path, filename)
+
+    image_full_path = os.path.join(settings.MEDIA_VOLUME, local_image_path)
+    if not os.path.exists(image_full_path):
+        logger.error("Image not found for video gen: %s", image_full_path)
+        return _mock_video(project_id, scene_id)
+
+    # Ken Burns zoom: slowly zoom from 100% to 110% over 5 seconds
+    zoom_filter = (
+        "scale=8000:-1,"
+        "zoompan=z='min(zoom+0.002,1.1)':d=120:x='iw/2-(iw/zoom/2)'"
+        ":y='ih/2-(ih/zoom/2)':s=1280x720:fps=24,"
+        "setpts=PTS-STARTPTS"
+    )
+
+    # Build base command
+    if local_audio_path:
+        audio_full = os.path.join(settings.MEDIA_VOLUME, local_audio_path)
+        if os.path.exists(audio_full):
+            cmd = [
+                "ffmpeg", "-y",
+                "-loop", "1", "-i", image_full_path,
+                "-i", audio_full,
+                "-vf", zoom_filter,
+                "-t", "5",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                "-pix_fmt", "yuv420p", "-shortest",
+                filepath,
+            ]
+        else:
+            local_audio_path = None
+
+    if not local_audio_path:
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1", "-i", image_full_path,
+            "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+            "-vf", zoom_filter,
+            "-t", "5",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-pix_fmt", "yuv420p", "-shortest",
+            filepath,
+        ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            logger.error("FFmpeg I2V failed: %s", result.stderr[-500:])
+            return _mock_video(project_id, scene_id)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        logger.error("FFmpeg I2V error, falling back to mock")
+        return _mock_video(project_id, scene_id)
+
+    logger.info("FFmpeg I2V video created: %s", filepath)
     return f"{project_id}/videos/{filename}"
