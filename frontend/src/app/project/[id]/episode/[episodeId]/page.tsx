@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { useProjectStore } from "@/stores/useProjectStore";
+import { useToastStore } from "@/stores/useToastStore";
 import { episodeApi, type Episode, type Scene } from "@/lib/api";
 import KanbanBoard from "@/components/KanbanBoard";
 
@@ -143,6 +144,26 @@ export default function EpisodeKanbanPage(props: { params: Promise<PageParams> }
 }
 
 /* ── Inline Episode Kanban Content ── */
+
+const EPISODE_PHASE_ACTIONS: Record<string, { label: string; description: string }> = {
+  STORYBOARD: {
+    label: "生成全部素材",
+    description: "AI 将为每个镜头生成语音、图片素材。",
+  },
+  PRODUCTION: {
+    label: "素材生成完毕",
+    description: "审核通过的镜头将自动触发视频生成。全部完成后可合成最终视频。",
+  },
+  COMPOSING: {
+    label: "合成最终视频",
+    description: "所有镜头视频就绪, 合成完整漫剧视频。",
+  },
+  COMPLETED: {
+    label: "已完成",
+    description: "本集漫剧已生成完毕。",
+  },
+};
+
 function EpisodeKanbanContent({
   project, episode, scenes, onScenesUpdate,
 }: {
@@ -151,25 +172,108 @@ function EpisodeKanbanContent({
   scenes: Scene[];
   onScenesUpdate: (scenes: Scene[]) => void;
 }) {
-  const { generateAllImages, approveScene, composeFinal, loading } = useProjectStore();
+  const { generateAllImages, composeFinal, loading } = useProjectStore();
+  const addToast = useToastStore((s) => s.addToast);
 
-  const handleBatchAction = async (action: string) => {
-    switch (action) {
-      case "generate-images":
-        // For episode, we'd need per-episode image gen — fallback to project-level for now
-        await generateAllImages(project.id);
-        break;
-      case "compose":
-        await composeFinal(project.id);
-        break;
+  const phase = EPISODE_PHASE_ACTIONS[episode.status];
+
+  const handlePhaseAction = async () => {
+    if (episode.status === "STORYBOARD") {
+      await generateAllImages(project.id);
+    } else if (episode.status === "COMPOSING") {
+      await composeFinal(project.id);
     }
     // Refresh episode scenes
     const updatedScenes = await episodeApi.listScenes(episode.id);
     onScenesUpdate(updatedScenes);
   };
 
+  const reviewCount = scenes.filter((s) => s.status === "REVIEW").length;
+  const approvedCount = scenes.filter((s) =>
+    ["APPROVED", "VIDEO_GEN", "READY"].includes(s.status)
+  ).length;
+  const readyCount = scenes.filter((s) => s.status === "READY").length;
+
+  const handleBatchApprove = async () => {
+    const reviewSceneIds = scenes
+      .filter((s) => s.status === "REVIEW")
+      .map((s) => s.id);
+    if (reviewSceneIds.length === 0) {
+      addToast("info", "没有待审核的场景");
+      return;
+    }
+    try {
+      const { batchApprove } = await import("@/lib/api").then((m) => m.assetApi);
+      const result = await batchApprove(reviewSceneIds);
+      addToast("success", `已批量审核 ${result.approved} 个场景`);
+      const updatedScenes = await episodeApi.listScenes(episode.id);
+      onScenesUpdate(updatedScenes);
+    } catch (err: unknown) {
+      addToast("error", err instanceof Error ? err.message : "批量审核失败");
+    }
+  };
+
   return (
     <div style={{ padding: "24px" }}>
+      {/* Phase Action Header */}
+      {phase && (
+        <div
+          className="glass-panel"
+          style={{
+            padding: "20px 24px",
+            marginBottom: 24,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+              {phase.description}
+            </p>
+            <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
+              <span>总镜头: {scenes.length}</span>
+              <span>|</span>
+              <span>已审核: {approvedCount}</span>
+              <span>|</span>
+              <span>就绪: {readyCount}</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, flexShrink: 0, marginLeft: 24 }}>
+            {episode.status === "STORYBOARD" && (
+              <button
+                className="btn-primary"
+                onClick={handlePhaseAction}
+                disabled={loading}
+              >
+                {loading ? <span className="spinner" /> : null}
+                {phase.label}
+              </button>
+            )}
+            {episode.status === "PRODUCTION" && reviewCount > 0 && (
+              <button
+                className="btn-primary"
+                onClick={handleBatchApprove}
+                disabled={loading}
+                style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}
+              >
+                全部审核 ({reviewCount})
+              </button>
+            )}
+            {episode.status === "COMPOSING" && (
+              <button
+                className="btn-primary"
+                onClick={handlePhaseAction}
+                disabled={loading}
+              >
+                {loading ? <span className="spinner" /> : null}
+                🎞 合成最终视频
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Episode Script Preview */}
       {episode.full_script && (
         <details style={{ marginBottom: 24 }}>
@@ -237,7 +341,7 @@ function EpisodeKanbanContent({
                     display: "-webkit-box", WebkitLineClamp: 3,
                     WebkitBoxOrient: "vertical", overflow: "hidden",
                   }}>
-                    "{scene.dialogue_text}"
+                    &quot;{scene.dialogue_text}&quot;
                   </p>
                 )}
                 {scene.local_image_path && (
