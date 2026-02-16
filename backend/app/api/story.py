@@ -11,6 +11,7 @@ All endpoints follow the strict Human-in-the-Loop pattern:
 - Generate content → return for human review → explicit APPROVE before next stage.
 """
 
+import asyncio
 import json
 import uuid
 import logging
@@ -20,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import delete
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -32,6 +34,39 @@ from app.services.outline_pipeline import OutlinePipeline
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ── Deadlock retry helper ──────────────────────────
+
+_MAX_DEADLOCK_RETRIES = 3
+_DEADLOCK_BACKOFF_BASE = 0.3  # seconds
+
+
+async def _flush_with_retry(
+    db: AsyncSession, *, max_retries: int = _MAX_DEADLOCK_RETRIES
+) -> None:
+    """Flush the session, retrying on MySQL deadlock (error 1213).
+
+    Uses exponential back-off: 0.3s, 0.6s, 1.2s.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            await db.flush()
+            return
+        except OperationalError as exc:
+            # MySQL deadlock error code = 1213
+            if exc.orig and getattr(exc.orig, "args", (None,))[0] == 1213:
+                if attempt == max_retries:
+                    logger.error("Deadlock persists after %d retries, raising", max_retries)
+                    raise
+                wait = _DEADLOCK_BACKOFF_BASE * (2 ** (attempt - 1))
+                logger.warning(
+                    "Deadlock detected (attempt %d/%d), retrying in %.1fs",
+                    attempt, max_retries, wait,
+                )
+                await asyncio.sleep(wait)
+            else:
+                raise
 
 
 class GenerateOutlineRequest(BaseModel):
@@ -377,7 +412,7 @@ async def extract_episodes_and_generate_scripts(
 
     # Step 4: Advance project to IN_PRODUCTION
     project.status = ProjectStatus.IN_PRODUCTION.value
-    await db.flush()
+    await _flush_with_retry(db)
     await db.refresh(project)
 
     return StoryResponse(
@@ -433,7 +468,7 @@ async def parse_episode_scenes(
         db.add(scene)
 
     episode.status = EpisodeStatus.STORYBOARD.value
-    await db.flush()
+    await _flush_with_retry(db)
     await db.refresh(episode)
 
     return StoryResponse(
