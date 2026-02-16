@@ -25,6 +25,17 @@ from app.services.base_gen_service import BaseGenService, GenServiceConfig
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# Module-level httpx client for connection reuse (lazy init)
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
+    """Return a module-level httpx.AsyncClient, creating it on first use."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=timeout)
+    return _http_client
+
 
 class VideoGenService(BaseGenService[str]):
     """Video generation service wrapping Volcengine Seedance I2V API.
@@ -164,9 +175,9 @@ async def _generate_video_core(
     logger.info("Creating Seedance task for scene=%s", scene_id[:8])
 
     # Step 1: Create task
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(task_url, headers=headers, json=payload)
-        response.raise_for_status()
+    client = _get_http_client()
+    response = await client.post(task_url, headers=headers, json=payload)
+    response.raise_for_status()
 
     task_data = response.json()
     task_id = task_data.get("id") or task_data.get("task_id")
@@ -197,43 +208,43 @@ async def _poll_task(
     Raises RuntimeError on timeout or failure.
     """
     elapsed = 0
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        while elapsed < timeout_seconds:
-            await asyncio.sleep(interval_seconds)
-            elapsed += interval_seconds
+    client = _get_http_client(timeout=30.0)
+    while elapsed < timeout_seconds:
+        await asyncio.sleep(interval_seconds)
+        elapsed += interval_seconds
 
-            response = await client.get(poll_url, headers=headers)
-            response.raise_for_status()
+        response = await client.get(poll_url, headers=headers)
+        response.raise_for_status()
 
-            data = response.json()
-            status = data.get("status", "").lower()
+        data = response.json()
+        status = data.get("status", "").lower()
 
-            logger.info("Seedance task poll: status=%s elapsed=%ds", status, elapsed)
+        logger.info("Seedance task poll: status=%s elapsed=%ds", status, elapsed)
 
-            if status in ("succeeded", "completed", "success"):
-                # Extract video URL from result
-                output = data.get("output", {})
-                video_url = (
-                    output.get("video_url")
-                    or output.get("url")
-                    or data.get("video_url")
-                )
-                if not video_url:
-                    # Try content array format
-                    content = output.get("content", [])
-                    for item in content:
-                        if item.get("type") == "video_url":
-                            video_url = item.get("video_url", {}).get("url")
-                            break
+        if status in ("succeeded", "completed", "success"):
+            # Extract video URL from result
+            output = data.get("output", {})
+            video_url = (
+                output.get("video_url")
+                or output.get("url")
+                or data.get("video_url")
+            )
+            if not video_url:
+                # Try content array format
+                content = output.get("content", [])
+                for item in content:
+                    if item.get("type") == "video_url":
+                        video_url = item.get("video_url", {}).get("url")
+                        break
 
-                if not video_url:
-                    raise RuntimeError(f"Task succeeded but no video URL found: {data}")
+            if not video_url:
+                raise RuntimeError(f"Task succeeded but no video URL found: {data}")
 
-                return video_url
+            return video_url
 
-            elif status in ("failed", "error", "cancelled"):
-                error_msg = data.get("error", {}).get("message", "Unknown error")
-                raise RuntimeError(f"Seedance task failed: {error_msg}")
+        elif status in ("failed", "error", "cancelled"):
+            error_msg = data.get("error", {}).get("message", "Unknown error")
+            raise RuntimeError(f"Seedance task failed: {error_msg}")
 
     raise RuntimeError(f"Seedance task timed out after {timeout_seconds}s")
 
@@ -246,12 +257,12 @@ async def _download_video(url: str, project_id: str, scene_id: str) -> str:
     filename = f"{scene_id}.mp4"
     filepath = os.path.join(dir_path, filename)
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        async with client.stream("GET", url) as response:
-            response.raise_for_status()
-            with open(filepath, "wb") as f:
-                async for chunk in response.aiter_bytes(chunk_size=8192):
-                    f.write(chunk)
+    client = _get_http_client(timeout=120.0)
+    async with client.stream("GET", url) as response:
+        response.raise_for_status()
+        with open(filepath, "wb") as f:
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                f.write(chunk)
 
     return f"{project_id}/videos/{filename}"
 

@@ -23,6 +23,17 @@ settings = get_settings()
 
 OPENROUTER_URL = f"{settings.OPENROUTER_BASE_URL}/chat/completions"
 
+# Module-level httpx client for connection reuse (lazy init)
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client(timeout: float = 180.0) -> httpx.AsyncClient:
+    """Return a module-level httpx.AsyncClient, creating it on first use."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=timeout)
+    return _http_client
+
 IMAGE_SYSTEM_PROMPT = """你是一位专业的漫画/动漫插画师。请根据用户提供的详细画面描述，
 生成一张高质量的漫剧风格插画。
 
@@ -171,9 +182,9 @@ async def _generate_via_flux(
         settings.FLUX_MODEL, scene_id[:8], seed,
     )
 
-    async with httpx.AsyncClient(timeout=float(settings.FLUX_TIMEOUT)) as client:
-        response = await client.post(url, headers=headers, json=payload)
-        response.raise_for_status()
+    client = _get_http_client(timeout=float(settings.FLUX_TIMEOUT))
+    response = await client.post(url, headers=headers, json=payload)
+    response.raise_for_status()
 
     result = response.json()
     data_list = result.get("data", [])
@@ -256,9 +267,9 @@ async def _generate_via_openrouter(
 
     logger.info("Calling OpenRouter image model=%s for scene=%s", settings.IMAGE_MODEL, scene_id[:8])
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(OPENROUTER_URL, headers=headers, json=body)
-        response.raise_for_status()
+    client = _get_http_client()
+    response = await client.post(OPENROUTER_URL, headers=headers, json=body)
+    response.raise_for_status()
 
     data = response.json()
 
@@ -354,10 +365,10 @@ async def _extract_image_from_url(image_url: str) -> bytes | None:
 
 async def _download_bytes(url: str) -> bytes:
     """Download binary content from URL."""
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        return response.content
+    client = _get_http_client(timeout=60.0)
+    response = await client.get(url)
+    response.raise_for_status()
+    return response.content
 
 
 def _save_image(image_data: bytes, project_id: str, scene_id: str) -> str:
@@ -382,7 +393,7 @@ async def _download_image(url: str, project_id: str, scene_id: str) -> str:
     filename = f"{scene_id}.png"
     filepath = os.path.join(dir_path, filename)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with _get_http_client(timeout=60.0) as client:
         async with client.stream("GET", url) as response:
             response.raise_for_status()
             with open(filepath, "wb") as f:

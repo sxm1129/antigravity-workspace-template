@@ -17,6 +17,17 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# Module-level httpx client for connection reuse (lazy init)
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
+    """Return a module-level httpx.AsyncClient, creating it on first use."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=timeout)
+    return _http_client
+
 
 async def synthesize_speech(
     text: str,
@@ -52,9 +63,9 @@ async def synthesize_speech(
     # Dynamic timeout: base 60s + 10s per 50 chars, max 600s
     timeout = min(60.0 + len(text) // 50 * 10.0, 600.0)
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(api_url, data=form_data)
-        response.raise_for_status()
+    client = _get_http_client(timeout=timeout)
+    response = await client.post(api_url, data=form_data)
+    response.raise_for_status()
 
     result = response.json()
     if not result.get("success"):

@@ -89,18 +89,20 @@ def generate_scene_video(
     """Generate a video for a scene.
 
     Includes Redis mutex lock to prevent duplicate expensive requests.
-    Lock is released before retry so the retry attempt can reacquire it.
+    Lock is released on both success and failure.
     """
     import redis
+    from app.services.pubsub import _get_sync_pool
 
     lock_key = f"seedance_lock:{scene_id}"
-    redis_client = redis.Redis.from_url(settings.REDIS_URL)
+    redis_client = redis.Redis(connection_pool=_get_sync_pool())
 
     # Anti-duplicate: SETNX mutex
     if not redis_client.set(lock_key, "1", ex=600, nx=True):
         logger.warning("Duplicate video request blocked for scene %s", scene_id)
         return {"scene_id": scene_id, "status": "duplicate_blocked"}
 
+    succeeded = False
     try:
         from app.services.video_gen import generate_video
 
@@ -119,16 +121,15 @@ def generate_scene_video(
 
         # Broadcast final status
         _publish_scene_update(project_id, scene_id, SceneStatus.READY.value)
+        succeeded = True
 
         return {"scene_id": scene_id, "video_path": rel_path}
 
     except Exception as exc:
         logger.error("Video generation failed for scene %s: %s", scene_id, exc)
-        # BUG-3 FIX: Release lock BEFORE retry so the retry can reacquire it
-        redis_client.delete(lock_key)
         raise self.retry(exc=exc)
-    else:
-        # Only release lock on success (not on retry)
+    finally:
+        # Always release lock — on success or before retry
         redis_client.delete(lock_key)
 
 
