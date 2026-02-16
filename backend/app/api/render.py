@@ -78,7 +78,8 @@ async def get_preview_props(project_id: str):
 
 @router.post("/start/{project_id}", response_model=RenderResponse)
 async def start_render(project_id: str, req: RenderRequest):
-    """Trigger video composition synchronously (for now)."""
+    """Trigger video composition (runs in a thread to avoid blocking the event loop)."""
+    import asyncio
     from app.tasks.compose_task import _get_scene_data
 
     service = get_compose_service()
@@ -88,7 +89,8 @@ async def start_render(project_id: str, req: RenderRequest):
         raise HTTPException(status_code=404, detail="No ready scenes found")
 
     try:
-        result = service.compose(
+        result = await asyncio.to_thread(
+            service.compose,
             project_id,
             scene_data,
             title=req.title,

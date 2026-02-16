@@ -156,10 +156,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     try {
       const project = await projectApi.get(id);
       set({ currentProject: project, loading: false });
-      // Also fetch scenes, characters, and episodes
-      const scenes = await sceneApi.list(id);
-      const characters = await characterApi.list(id);
-      const episodes = await episodeApi.list(id);
+      // Fetch scenes, characters, and episodes in parallel
+      const [scenes, characters, episodes] = await Promise.all([
+        sceneApi.list(id),
+        characterApi.list(id),
+        episodeApi.list(id),
+      ]);
       set({ scenes, characters, episodes });
     } catch (e: unknown) {
       set({ error: (e as Error).message, loading: false });

@@ -16,13 +16,18 @@ router = APIRouter()
 
 @router.get("/", response_model=list[SceneRead])
 async def list_scenes(
-    project_id: str, db: AsyncSession = Depends(get_db)
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    limit: int = 200,
+    offset: int = 0,
 ):
-    """List all scenes for a project, ordered by sequence."""
+    """List all scenes for a project, ordered by sequence. Supports pagination."""
     result = await db.execute(
         select(Scene)
         .where(Scene.project_id == project_id)
         .order_by(Scene.sequence_order)
+        .limit(limit)
+        .offset(offset)
     )
     return result.scalars().all()
 

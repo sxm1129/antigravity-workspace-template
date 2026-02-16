@@ -271,39 +271,47 @@ class BatchApproveRequest(BaseModel):
 async def batch_approve(req: BatchApproveRequest, db: AsyncSession = Depends(get_db)):
     """Approve multiple scenes at once and trigger video generation for each.
 
-    Only scenes in REVIEW status will be approved.
+    Only scenes in REVIEW status with an existing image will be approved.
     """
-    approved = 0
+    # Batch-fetch all requested scenes in one query
+    result = await db.execute(
+        select(Scene).where(Scene.id.in_(req.scene_ids))
+    )
+    all_scenes = {s.id: s for s in result.scalars().all()}
+
+    # First pass: approve eligible scenes and collect dispatch data
+    approved_dispatch: list[dict] = []
     for scene_id in req.scene_ids:
-        scene = await db.get(Scene, scene_id)
+        scene = all_scenes.get(scene_id)
         if not scene or scene.status != SceneStatus.REVIEW.value:
             continue
-
-        # Check assets exist
-        has_image = bool(scene.local_image_path)
-        has_audio = bool(scene.local_audio_path)
-        if not has_image:
+        if not scene.local_image_path:
             continue
 
         scene.status = SceneStatus.APPROVED.value
-        approved += 1
+        approved_dispatch.append({
+            "scene_id": scene.id,
+            "project_id": scene.project_id,
+            "prompt_motion": scene.prompt_motion or "",
+            "local_image_path": scene.local_image_path or "",
+            "local_audio_path": scene.local_audio_path,
+        })
 
     await db.flush()
 
-    # Trigger video generation for each approved scene
-    tasks = []
-    for scene_id in req.scene_ids:
-        scene = await db.get(Scene, scene_id)
-        if scene and scene.status == SceneStatus.APPROVED.value:
-            from app.tasks.asset_tasks import generate_scene_video
-            task = generate_scene_video.delay(
-                scene.id,
-                scene.project_id,
-                scene.prompt_motion or "",
-                scene.local_image_path or "",
-                scene.local_audio_path,
-            )
-            tasks.append({"scene_id": scene.id, "task_id": task.id})
+    # Dispatch video generation for approved scenes
+    from app.tasks.asset_tasks import generate_scene_video
 
-    return {"approved": approved, "video_tasks": tasks}
+    tasks = []
+    for sd in approved_dispatch:
+        task = generate_scene_video.delay(
+            sd["scene_id"],
+            sd["project_id"],
+            sd["prompt_motion"],
+            sd["local_image_path"],
+            sd["local_audio_path"],
+        )
+        tasks.append({"scene_id": sd["scene_id"], "task_id": task.id})
+
+    return {"approved": len(approved_dispatch), "video_tasks": tasks}
 

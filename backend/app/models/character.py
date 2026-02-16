@@ -2,9 +2,10 @@ from __future__ import annotations
 """Character ORM model — identity asset for visual consistency across scenes."""
 
 import uuid
+from datetime import datetime
 from typing import Optional, List
 
-from sqlalchemy import JSON, ForeignKey, String, Text
+from sqlalchemy import JSON, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -42,5 +43,14 @@ class Character(Base):
         JSON, nullable=True, default=list
     )
 
+    # Timestamps
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        nullable=True, server_default=func.now()
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        nullable=True, server_default=func.now(), onupdate=func.now()
+    )
+
     # Relationships
     project = relationship("Project", back_populates="characters")
+

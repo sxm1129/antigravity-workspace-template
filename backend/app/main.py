@@ -5,11 +5,12 @@ Mounts all API routes, configures CORS, serves media static files,
 and initializes the database on startup.
 """
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -41,7 +42,7 @@ async def lifespan(app: FastAPI):
     # --- Startup recovery: reset scenes stuck in transient states ---
     # When worker/backend restarts, any in-progress tasks are lost.
     # Reset transient statuses so users can re-trigger generation.
-    _recover_stuck_scenes()
+    await asyncio.to_thread(_recover_stuck_scenes)
 
     logger.info("Skipping init_db (tables assumed to exist)")
 
@@ -114,10 +115,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow frontend dev server
+# CORS — allow frontend dev server (configurable via CORS_ORIGINS env)
+_cors_origins = os.environ.get(
+    "CORS_ORIGINS",
+    "http://localhost:9000,http://localhost:3000,http://127.0.0.1:9000,http://127.0.0.1:3000",
+).split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:9000", "http://localhost:3000", "http://127.0.0.1:9000", "http://127.0.0.1:3000", "*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -154,7 +159,10 @@ async def health():
 
 @app.post("/api/migrate")
 async def run_migration():
-    """Temporary endpoint to add missing columns via the existing connection pool."""
+    """Add missing columns via the existing connection pool. Only available in DEBUG mode."""
+    if not settings.DEBUG:
+        raise HTTPException(status_code=403, detail="Migration endpoint disabled in production")
+
     from sqlalchemy import text
     from app.database import engine
 

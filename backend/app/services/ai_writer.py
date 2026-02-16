@@ -18,6 +18,9 @@ settings = get_settings()
 
 OPENROUTER_URL = f"{settings.OPENROUTER_BASE_URL}/chat/completions"
 
+# Module-level httpx client for connection reuse (lazy init)
+_openrouter_client: httpx.AsyncClient | None = None
+
 OUTLINE_SYSTEM_PROMPT = """你是一位经验丰富的漫剧编剧。根据用户提供的一句话灵感（logline），
 请扩写出一个完整的故事大纲，包含：
 1. 世界观设定
@@ -242,17 +245,19 @@ def _extract_json_text(text: str) -> str:
         return stripped
 
     # Last resort: find first { or [ and last } or ]
-    first_brace = min(
-        (stripped.find(c) for c in ("{", "[") if stripped.find(c) != -1),
-        default=-1,
-    )
-    if first_brace != -1:
-        last_brace = max(
-            (stripped.rfind(c) for c in ("}", "]") if stripped.rfind(c) != -1),
-            default=-1,
-        )
-        if last_brace > first_brace:
-            return stripped[first_brace : last_brace + 1]
+    first_obj = stripped.find("{")
+    first_arr = stripped.find("[")
+    if first_obj == -1 and first_arr == -1:
+        return stripped
+
+    first_brace = min(p for p in (first_obj, first_arr) if p != -1)
+
+    last_obj = stripped.rfind("}")
+    last_arr = stripped.rfind("]")
+    last_brace = max(p for p in (last_obj, last_arr) if p != -1)
+
+    if last_brace > first_brace:
+        return stripped[first_brace : last_brace + 1]
 
     return stripped
 
@@ -265,6 +270,7 @@ async def _call_openrouter(
     """Call OpenRouter chat completions API.
 
     Uses google/gemini-3-flash-preview for story generation tasks.
+    Reuses a module-level httpx.AsyncClient for connection pooling.
     """
     headers = {
         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
@@ -287,9 +293,12 @@ async def _call_openrouter(
 
     logger.info("Calling OpenRouter model=%s json_mode=%s", settings.STORY_MODEL, json_mode)
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(OPENROUTER_URL, headers=headers, json=body)
-        response.raise_for_status()
+    global _openrouter_client
+    if _openrouter_client is None:
+        _openrouter_client = httpx.AsyncClient(timeout=180.0)
+
+    response = await _openrouter_client.post(OPENROUTER_URL, headers=headers, json=body)
+    response.raise_for_status()
 
     data = response.json()
     content = data["choices"][0]["message"]["content"]

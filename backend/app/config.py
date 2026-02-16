@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     USE_MOCK_API: bool = True
 
     # --- Database (MySQL 8.0+) ---
-    DB_HOST: str = "39.98.37.143"
+    DB_HOST: str = "localhost"
     DB_PORT: int = 3306
     DB_USER: str = "root"
     DB_PASSWORD: str = ""
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # --- Flux (Private Deployment) ---
     FLUX_API_BASE: str = "http://47.92.252.119:8080/api/v1"
-    FLUX_API_KEY: str = "fx-commonwtpKmZL6XPKFrqrnvDRszLxtjM0w62DHULzGfwqL2K"
+    FLUX_API_KEY: str = ""
     FLUX_MODEL: str = "FLUX.1-schnell"
     FLUX_TIMEOUT: int = 120
 

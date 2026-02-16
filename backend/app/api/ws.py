@@ -39,12 +39,13 @@ async def ws_project(ws: WebSocket, project_id: str):
     logger.info("WS connected: project=%s (total=%d)", project_id, len(_project_connections[project_id]))
 
     # Start Redis Pub/Sub listener task
+    redis_client = None
     pubsub = None
     listener_task = None
     try:
         from app.services.pubsub import subscribe_project, listen_pubsub
 
-        pubsub = await subscribe_project(project_id)
+        redis_client, pubsub = await subscribe_project(project_id)
         listener_task = asyncio.create_task(
             _relay_pubsub_to_ws(pubsub, ws, project_id)
         )
@@ -68,6 +69,8 @@ async def ws_project(ws: WebSocket, project_id: str):
         if pubsub:
             await pubsub.unsubscribe()
             await pubsub.close()
+        if redis_client:
+            await redis_client.close()
 
 
 async def _relay_pubsub_to_ws(pubsub, ws: WebSocket, project_id: str):

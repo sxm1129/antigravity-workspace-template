@@ -20,10 +20,17 @@ router = APIRouter()
 
 
 @router.get("/", response_model=list[ProjectRead])
-async def list_projects(db: AsyncSession = Depends(get_db)):
-    """List all projects ordered by creation date (newest first)."""
+async def list_projects(
+    db: AsyncSession = Depends(get_db),
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List all projects ordered by creation date (newest first). Supports pagination."""
     result = await db.execute(
-        select(Project).order_by(Project.created_at.desc())
+        select(Project)
+        .order_by(Project.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     return result.scalars().all()
 
