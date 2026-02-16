@@ -37,6 +37,8 @@ class ProjectRead(BaseModel):
     id: str
     title: str
     logline: str | None = None
+    style_preset: str | None = None
+    mode: str | None = None
     world_outline: str | None = None
     full_script: str | None = None
     final_video_path: str | None = None

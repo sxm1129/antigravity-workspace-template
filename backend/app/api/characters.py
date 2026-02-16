@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.character import Character
+from app.models.project import Project
 from app.schemas.character import CharacterCreate, CharacterRead, CharacterUpdate
 
 router = APIRouter()
@@ -100,6 +101,10 @@ async def generate_character_ref(
     if not character.appearance_prompt:
         raise HTTPException(status_code=400, detail="No appearance_prompt set for this character")
 
+    # Explicit query — do NOT use character.project (lazy-load crashes in async)
+    project = await db.get(Project, project_id)
+    style = project.style_preset if project and project.style_preset else "default"
+
     from app.services.character_ref_gen import generate_character_reference
 
     ref_path = await generate_character_reference(
@@ -107,7 +112,7 @@ async def generate_character_ref(
         appearance_prompt=character.appearance_prompt,
         project_id=project_id,
         character_id=character_id,
-        style=character.project.style_preset or "default" if character.project else "default",
+        style=style,
     )
     character.reference_image_path = ref_path
     await db.flush()

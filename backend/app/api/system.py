@@ -202,6 +202,7 @@ async def start_celery_worker():
 
         # Start celery worker as background process
         log_file = "/tmp/mw_celery.log"
+        log_fh = open(log_file, "a")
         proc = subprocess.Popen(
             [
                 venv_celery,
@@ -211,10 +212,11 @@ async def start_celery_worker():
                 "--concurrency=2",
             ],
             cwd=backend_dir,
-            stdout=open(log_file, "a"),
+            stdout=log_fh,
             stderr=subprocess.STDOUT,
             start_new_session=True,  # detach from parent
         )
+        log_fh.close()  # Popen has dup'd the fd; safe to close ours
 
         return {
             "status": "started",

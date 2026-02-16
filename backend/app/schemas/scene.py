@@ -40,6 +40,7 @@ class SceneRead(BaseModel):
 
     id: str
     project_id: str
+    episode_id: str | None = None
     sequence_order: int
     dialogue_text: str | None = None
     prompt_visual: str | None = None
