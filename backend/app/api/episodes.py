@@ -126,7 +126,14 @@ async def advance_episode_status(
     episode.status = target
     await db.flush()
     await db.refresh(episode)
-    return episode
+
+    # Compute scenes_count for consistent EpisodeRead response
+    count_result = await db.execute(
+        select(sa_func.count(Scene.id)).where(Scene.episode_id == episode_id)
+    )
+    scenes_count = count_result.scalar() or 0
+
+    return _episode_to_read(episode, scenes_count)
 
 
 @router.get("/episodes/{episode_id}/scenes")

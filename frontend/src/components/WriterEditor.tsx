@@ -54,8 +54,8 @@ export default function WriterEditor({ project }: { project: Project }) {
   const info = STATUS_INFO[project.status];
 
   // Whether we're past the writer phase (episodes created)
-  const isEpisodePhase = !info && (project.status === "IN_PRODUCTION" || project.status === "COMPLETED");
-  // Legacy read-only states
+  const isEpisodePhase = project.status === "IN_PRODUCTION" || project.status === "COMPLETED";
+  // Legacy read-only states (e.g. CHARACTER_DESIGN, SCRIPT_REVIEW, etc.)
   const isLegacyReadOnly = !info && !isEpisodePhase;
 
   const lastProjectId = useRef(project.id);

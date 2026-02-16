@@ -68,13 +68,25 @@ def _publish_sync(project_id: str, message: dict[str, Any]) -> None:
 
 # ──────── Subscriber (used by FastAPI — async) ────────
 
+_async_client: aioredis.Redis | None = None
+
+
+def _get_async_client() -> aioredis.Redis:
+    """Lazy-init a module-level async Redis client (singleton)."""
+    global _async_client
+    if _async_client is None:
+        settings = get_settings()
+        _async_client = aioredis.from_url(settings.REDIS_URL)
+    return _async_client
+
+
 async def subscribe_project(project_id: str) -> tuple[aioredis.Redis, aioredis.client.PubSub]:
     """Create an async Redis PubSub subscription for a project channel.
 
-    Returns both the client and pubsub so the caller can close both.
+    Returns the shared client and a new pubsub instance.
+    Caller should close the pubsub when done, but NOT the client.
     """
-    settings = get_settings()
-    r = aioredis.from_url(settings.REDIS_URL)
+    r = _get_async_client()
     pubsub = r.pubsub()
     channel = f"{CHANNEL_PREFIX}{project_id}"
     await pubsub.subscribe(channel)

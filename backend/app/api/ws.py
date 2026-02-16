@@ -69,8 +69,7 @@ async def ws_project(ws: WebSocket, project_id: str):
         if pubsub:
             await pubsub.unsubscribe()
             await pubsub.close()
-        if redis_client:
-            await redis_client.close()
+        # NOTE: do NOT close redis_client — it's a shared singleton from pubsub.py
 
 
 async def _relay_pubsub_to_ws(pubsub, ws: WebSocket, project_id: str):
