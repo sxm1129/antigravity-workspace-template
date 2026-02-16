@@ -7,7 +7,7 @@
 
 import { create } from "zustand";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 interface ProviderInfo {
   provider: string;
@@ -60,6 +60,7 @@ export const useRenderStore = create<RenderState>((set, get) => ({
     set({ propsLoading: true });
     try {
       const res = await fetch(`${API_BASE}/api/render/preview-props/${projectId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       set({ previewProps: data.props, propsLoading: false });
     } catch (e) {

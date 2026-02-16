@@ -1,5 +1,5 @@
 import React from "react";
-import { Video, Audio, useCurrentFrame } from "remotion";
+import { OffthreadVideo, Audio, useCurrentFrame } from "remotion";
 import type { SceneProps } from "../types";
 import { DialogueBubble } from "./DialogueBubble";
 
@@ -10,6 +10,8 @@ interface SceneClipProps {
 
 /**
  * Single scene — video clip + optional audio + dialogue bubble overlay.
+ * Uses OffthreadVideo for better @remotion/player compatibility.
+ * Falls back to a gradient placeholder when videoSrc is missing.
  */
 export const SceneClip: React.FC<SceneClipProps> = ({ scene, style }) => {
   const frame = useCurrentFrame();
@@ -23,15 +25,32 @@ export const SceneClip: React.FC<SceneClipProps> = ({ scene, style }) => {
         background: "#000",
       }}
     >
-      {/* Scene video */}
-      <Video
-        src={scene.videoSrc}
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-        }}
-      />
+      {/* Scene video or fallback placeholder */}
+      {scene.videoSrc ? (
+        <OffthreadVideo
+          src={scene.videoSrc}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            background: "linear-gradient(135deg, #1a1a2e, #16213e)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "rgba(255,255,255,0.3)",
+            fontSize: 18,
+          }}
+        >
+          场景 {scene.id.slice(0, 8)}
+        </div>
+      )}
 
       {/* TTS narration audio */}
       {scene.audioSrc && <Audio src={scene.audioSrc} />}

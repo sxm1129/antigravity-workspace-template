@@ -5,8 +5,6 @@ import {
   linearTiming,
 } from "@remotion/transitions";
 import { fade } from "@remotion/transitions/fade";
-import { slide } from "@remotion/transitions/slide";
-import { wipe } from "@remotion/transitions/wipe";
 import type { ComicDramaProps, SceneProps } from "./types";
 import { DEFAULTS } from "./types";
 import { TitleCard } from "./components/TitleCard";

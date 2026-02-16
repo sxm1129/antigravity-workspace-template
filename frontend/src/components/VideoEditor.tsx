@@ -6,8 +6,8 @@
  * - Remotion: Renders @remotion/player inline with ComicDrama composition
  * - FFmpeg: Shows scene list + one-click render button
  *
- * The webpack alias @remotion-project resolves to ../remotion/src/
- * so ComicDrama is bundled directly into the Next.js build.
+ * Remotion compositions are copied into src/remotion-compositions/
+ * and lazy-loaded to avoid SSR issues.
  */
 
 import React, { useEffect, useState, useCallback } from "react";
@@ -179,7 +179,7 @@ export default function VideoEditor({ projectId }: VideoEditorProps) {
                   <div style={styles.sceneNum}>S{i + 1}</div>
                   <div style={styles.sceneInfo}>
                     <span style={styles.sceneDuration}>
-                      {((scene.durationInFrames as number) / 24).toFixed(1)}s
+                      {((scene.durationInFrames as number) / ((previewProps?.fps as number) || 24)).toFixed(1)}s
                     </span>
                     {typeof scene.dialogue === "string" && scene.dialogue && (
                       <span style={styles.sceneDialogue}>
@@ -249,6 +249,7 @@ export default function VideoEditor({ projectId }: VideoEditorProps) {
 
 function calculateTotalFrames(props: Record<string, unknown>): number {
   const scenes = (props.scenes as Array<Record<string, unknown>>) || [];
+  if (scenes.length === 0) return 1; // Remotion requires durationInFrames >= 1
   const sceneDuration = scenes.reduce(
     (sum, s) => sum + ((s.durationInFrames as number) || 120),
     0

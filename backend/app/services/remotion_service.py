@@ -53,11 +53,12 @@ class RemotionComposeService(BaseComposeService):
         if not scenes:
             raise ValueError("No scenes to compose")
 
-        # Build input props
+        # Build input props (local paths for CLI render)
         props = self._build_props(
             project_id, scenes,
             title=title, episode_title=episode_title,
             bgm_path=bgm_path, style=style,
+            for_preview=False,
         )
 
         # Write props to file
@@ -125,6 +126,7 @@ class RemotionComposeService(BaseComposeService):
             project_id, scenes,
             title=title, episode_title=episode_title,
             bgm_path=bgm_path, style=style,
+            for_preview=True,
         )
 
     def _build_props(
@@ -136,29 +138,36 @@ class RemotionComposeService(BaseComposeService):
         episode_title: str | None = None,
         bgm_path: str | None = None,
         style: str = "default",
+        for_preview: bool = False,
     ) -> dict[str, Any]:
-        """Build ComicDramaProps dict from SceneData list."""
+        """Build ComicDramaProps dict from SceneData list.
+
+        Args:
+            for_preview: If True, return browser-accessible /media/ URLs.
+                         If False, return absolute local paths (for CLI render).
+        """
         fps = 24
+
+        def _resolve_path(relative_path: str) -> str:
+            """Resolve asset path based on context (browser vs local)."""
+            if for_preview:
+                return f"/media/{relative_path}"
+            abs_path = os.path.join(settings.MEDIA_VOLUME, relative_path)
+            if not os.path.isabs(abs_path):
+                abs_path = os.path.abspath(abs_path)
+            return abs_path
 
         scene_props = []
         for s in scenes:
-            # Resolve to absolute path for local file access
-            video_abs = os.path.join(settings.MEDIA_VOLUME, s.video_path)
-            if not os.path.isabs(video_abs):
-                video_abs = os.path.abspath(video_abs)
-
             scene_dict: dict[str, Any] = {
                 "id": s.id,
-                "videoSrc": video_abs,
+                "videoSrc": _resolve_path(s.video_path),
                 "durationInFrames": int(s.duration_seconds * fps),
                 "transition": s.transition or "fade",
             }
 
             if s.audio_path:
-                audio_abs = os.path.join(settings.MEDIA_VOLUME, s.audio_path)
-                if not os.path.isabs(audio_abs):
-                    audio_abs = os.path.abspath(audio_abs)
-                scene_dict["audioSrc"] = audio_abs
+                scene_dict["audioSrc"] = _resolve_path(s.audio_path)
 
             if s.dialogue_text:
                 scene_dict["dialogue"] = s.dialogue_text
@@ -184,10 +193,7 @@ class RemotionComposeService(BaseComposeService):
             props["episode"] = {"title": episode_title, "number": 1}
 
         if bgm_path:
-            bgm_abs = os.path.join(settings.MEDIA_VOLUME, bgm_path)
-            if not os.path.isabs(bgm_abs):
-                bgm_abs = os.path.abspath(bgm_abs)
-            props["bgmSrc"] = bgm_abs
+            props["bgmSrc"] = _resolve_path(bgm_path)
             props["bgmVolume"] = 0.3
 
         return props
