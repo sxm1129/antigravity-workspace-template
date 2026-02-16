@@ -14,6 +14,7 @@ from app.api.quick_draft import router as quick_draft_router
 from app.api.styles import router as styles_router
 from app.api.metrics import router as metrics_router
 from app.api.system import router as system_router
+from app.api.render import router as render_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -28,4 +29,5 @@ api_router.include_router(quick_draft_router, tags=["Quick Draft"])
 api_router.include_router(styles_router, prefix="/styles", tags=["Styles"])
 api_router.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
 api_router.include_router(system_router, prefix="/system", tags=["System"])
+api_router.include_router(render_router, tags=["Render"])
 

@@ -1,0 +1,24 @@
+{
+  "name": "motionweaver-remotion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Remotion video composition for MotionWeaver comic drama engine",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render ComicDrama",
+    "build": "remotion bundle"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "@remotion/player": "^4.0.0",
+    "@remotion/transitions": "^4.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.5.0"
+  }
+}

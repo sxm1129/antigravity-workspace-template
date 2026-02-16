@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     # --- Video Provider Strategy ---
     VIDEO_PROVIDERS: str = "seedance,ffmpeg"  # comma-separated, in priority order
 
+    # --- Compose Provider Strategy ---
+    COMPOSE_PROVIDER: str = "ffmpeg"  # "ffmpeg" | "remotion"
+    REMOTION_PROJECT_PATH: str = "../remotion"  # path to Remotion project dir
+
     # --- Convenience alias ---
     @property
     def OPENROUTER_MODEL(self) -> str:
