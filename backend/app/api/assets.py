@@ -49,10 +49,14 @@ async def generate_all_scene_images(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if project.status not in (ProjectStatus.STORYBOARD.value, ProjectStatus.PRODUCTION.value):
+    if project.status not in (
+        ProjectStatus.STORYBOARD.value,
+        ProjectStatus.PRODUCTION.value,
+        ProjectStatus.IN_PRODUCTION.value,
+    ):
         raise HTTPException(
             status_code=400,
-            detail=f"Project must be in STORYBOARD status (current: {project.status})",
+            detail=f"Project must be in STORYBOARD or IN_PRODUCTION status (current: {project.status})",
         )
 
     # Get all pending scenes
