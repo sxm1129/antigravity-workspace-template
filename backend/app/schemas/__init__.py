@@ -6,6 +6,12 @@ from app.schemas.project import (
     ProjectUpdate,
     ProjectStatusUpdate,
 )
+from app.schemas.episode import (
+    EpisodeCreate,
+    EpisodeRead,
+    EpisodeUpdate,
+    EpisodeStatusUpdate,
+)
 from app.schemas.character import CharacterCreate, CharacterRead, CharacterUpdate
 from app.schemas.scene import SceneCreate, SceneRead, SceneUpdate, SceneBulkCreate
 
@@ -14,6 +20,10 @@ __all__ = [
     "ProjectRead",
     "ProjectUpdate",
     "ProjectStatusUpdate",
+    "EpisodeCreate",
+    "EpisodeRead",
+    "EpisodeUpdate",
+    "EpisodeStatusUpdate",
     "CharacterCreate",
     "CharacterRead",
     "CharacterUpdate",

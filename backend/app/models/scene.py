@@ -42,6 +42,12 @@ class Scene(Base):
         nullable=False,
         index=True,
     )
+    episode_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("episodes.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     sequence_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Content fields
@@ -68,6 +74,7 @@ class Scene(Base):
 
     # Relationships
     project = relationship("Project", back_populates="scenes")
+    episode = relationship("Episode", back_populates="scenes")
     asset_versions = relationship(
         "AssetVersion", back_populates="scene", cascade="all, delete-orphan"
     )

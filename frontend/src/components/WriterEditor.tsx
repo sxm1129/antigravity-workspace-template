@@ -3,7 +3,7 @@
 import { type Project, styleApi } from "@/lib/api";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ── Writer pipeline steps (only the writer-relevant ones) ── */
 const WRITER_STEPS = ["DRAFT", "OUTLINE_REVIEW"];
@@ -41,6 +41,8 @@ export default function WriterEditor({ project }: { project: Project }) {
   const {
     generateOutline, regenerateOutline, extractAndGenerate, parseEpisodeScenes,
     saveProjectContent, rollbackToWriter, episodes, loading, error,
+    generateOutlineStream, continuePipelineFrom, resetPipeline, updatePipelineResult,
+    pipelineActive, pipelineSteps, pipelineResults, pipelineCurrentStep,
   } = useProjectStore();
 
   const [localOutline, setLocalOutline] = useState(project.world_outline || "");
@@ -73,15 +75,18 @@ export default function WriterEditor({ project }: { project: Project }) {
   const handleAction = async () => {
     switch (project.status) {
       case "DRAFT":
-        await generateOutline(project.id);
+        await generateOutlineStream(project.id);
         break;
       case "OUTLINE_REVIEW":
-        // Save edits before extracting episodes
         await saveProjectContent(project.id, { world_outline: localOutline });
         await extractAndGenerate(project.id);
         break;
     }
   };
+
+  const handleContinueFrom = useCallback(async (stepIndex: number) => {
+    await continuePipelineFrom(project.id, stepIndex);
+  }, [project.id, continuePipelineFrom]);
 
   const handleRegenerate = async (prompt?: string) => {
     await regenerateOutline(project.id, prompt || undefined);
@@ -389,6 +394,60 @@ export default function WriterEditor({ project }: { project: Project }) {
         </div>
       )}
 
+      {/* Pipeline Progress (DRAFT only, when pipeline is active or has results) */}
+      {project.status === "DRAFT" && (pipelineActive || Object.keys(pipelineResults).length > 0) && (
+        <div className="glass-panel" style={{ padding: 20, marginBottom: 24 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", marginBottom: 16 }}>
+            AI 创作流水线
+          </h3>
+          {/* Step indicators */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            {pipelineSteps.map((step, i) => (
+              <div key={step.key} style={{ flex: 1, textAlign: "center" }}>
+                <div style={{
+                  height: 6, borderRadius: 3, marginBottom: 8,
+                  background: step.status === "done"
+                    ? "var(--accent-success)"
+                    : step.status === "running"
+                    ? "linear-gradient(90deg, var(--accent-primary), var(--accent-primary-light))"
+                    : "var(--border)",
+                  transition: "all 0.4s ease",
+                  animation: step.status === "running" ? "pulse 1.5s infinite" : "none",
+                }} />
+                <span style={{
+                  fontSize: 11, fontWeight: 600,
+                  color: step.status === "done" ? "var(--accent-success)"
+                    : step.status === "running" ? "var(--accent-primary)"
+                    : "var(--text-muted)",
+                }}>
+                  {step.status === "done" ? "\u2713 " : step.status === "running" ? "\u25CF " : `${i + 1}. `}
+                  {step.label}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Step result panels */}
+          {["intent", "world", "plot"].map((stepKey, i) => {
+            const result = pipelineResults[stepKey];
+            if (!result) return null;
+            const stepLabel = pipelineSteps[i]?.label || stepKey;
+            return (
+              <StepResultPanel
+                key={stepKey}
+                stepKey={stepKey}
+                stepIndex={i}
+                label={stepLabel}
+                result={result}
+                onUpdate={(updated) => updatePipelineResult(stepKey, updated)}
+                onContinueFrom={handleContinueFrom}
+                disabled={pipelineActive || loading}
+              />
+            );
+          })}
+        </div>
+      )}
+
       {/* World Outline Editor */}
       {project.status === "OUTLINE_REVIEW" && (
         <div className="glass-panel" style={{ padding: 20, marginBottom: 24 }}>
@@ -422,7 +481,7 @@ export default function WriterEditor({ project }: { project: Project }) {
               padding: 0, background: "none", border: "none", cursor: "pointer",
             }}
           >
-            {showPromptEditor ? "▲" : "▼"} 调整提示词
+            {showPromptEditor ? "\u25B2" : "\u25BC"} 调整提示词
           </button>
 
           {showPromptEditor && (
@@ -500,16 +559,16 @@ export default function WriterEditor({ project }: { project: Project }) {
         <button
           className="btn-primary"
           onClick={handleAction}
-          disabled={loading}
+          disabled={loading || pipelineActive}
           style={{
             flex: 1, padding: "14px 24px",
             fontSize: 15, fontWeight: 600,
           }}
         >
-          {loading ? (
+          {loading || pipelineActive ? (
             <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               <span className="spinner" style={{ width: 16, height: 16 }} />
-              AI 正在创作中...
+              {pipelineActive ? `AI 创作中 (${pipelineSteps.filter(s => s.status === "done").length}/4)...` : "AI 正在创作中..."}
             </span>
           ) : (
             info?.action
@@ -517,5 +576,169 @@ export default function WriterEditor({ project }: { project: Project }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/* ── Step Result Panel — shows one agent's JSON output with edit capability ── */
+function StepResultPanel({
+  stepKey, stepIndex, label, result, onUpdate, onContinueFrom, disabled,
+}: {
+  stepKey: string;
+  stepIndex: number;
+  label: string;
+  result: Record<string, unknown>;
+  onUpdate: (result: Record<string, unknown>) => void;
+  onContinueFrom: (stepIndex: number) => void;
+  disabled: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState("");
+
+  const handleEdit = () => {
+    setEditText(JSON.stringify(result, null, 2));
+    setEditing(true);
+    setExpanded(true);
+  };
+
+  const handleSave = () => {
+    try {
+      const parsed = JSON.parse(editText);
+      onUpdate(parsed);
+      setEditing(false);
+    } catch {
+      alert("JSON 格式错误，请修正后再保存");
+    }
+  };
+
+  const handleContinue = () => {
+    setEditing(false);
+    // Continue pipeline from the NEXT step
+    onContinueFrom(stepIndex + 1);
+  };
+
+  // Render a summary for each step type
+  const renderSummary = () => {
+    if (stepKey === "intent") {
+      const r = result as Record<string, string | string[]>;
+      return (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {r.genre && <Tag color="#6366f1">{r.genre as string}</Tag>}
+          {r.era && <Tag color="#8b5cf6">{r.era as string}</Tag>}
+          {r.tone && <Tag color="#ec4899">{r.tone as string}</Tag>}
+          {r.story_type && <Tag color="#f59e0b">{r.story_type as string}</Tag>}
+        </div>
+      );
+    }
+    if (stepKey === "world") {
+      const characters = (result.characters || []) as { name: string; identity: string }[];
+      return (
+        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+          {characters.map((c) => `${c.name}(${c.identity})`).join(" / ")}
+        </div>
+      );
+    }
+    if (stepKey === "plot") {
+      const episodes = (result.episodes || []) as { number: number; title: string }[];
+      return (
+        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+          {episodes.map((e) => `第${e.number}集: ${e.title}`).join(" | ")}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div style={{
+      marginBottom: 12, padding: 14,
+      background: "var(--bg-primary)", borderRadius: 8,
+      border: "1px solid var(--border)",
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+            display: "flex", alignItems: "center", gap: 6, padding: 0,
+          }}
+        >
+          {expanded ? "\u25BC" : "\u25B6"} {label}
+        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            className="btn-ghost"
+            onClick={handleEdit}
+            disabled={disabled}
+            style={{ fontSize: 11, padding: "3px 8px" }}
+          >
+            编辑
+          </button>
+          {editing && (
+            <button
+              className="btn-primary"
+              onClick={handleContinue}
+              disabled={disabled}
+              style={{ fontSize: 11, padding: "3px 10px" }}
+            >
+              修改后继续
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Summary (always visible) */}
+      {!expanded && renderSummary()}
+
+      {/* Expanded: show JSON or editor */}
+      {expanded && (
+        editing ? (
+          <div>
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              style={{
+                width: "100%", minHeight: 200, padding: 12,
+                background: "var(--bg-secondary)", border: "1px solid var(--border)",
+                borderRadius: 6, color: "var(--text-primary)",
+                fontSize: 12, lineHeight: 1.5, fontFamily: "monospace",
+                resize: "vertical",
+              }}
+            />
+            <div style={{ display: "flex", gap: 6, marginTop: 8, justifyContent: "flex-end" }}>
+              <button className="btn-ghost" onClick={() => setEditing(false)} style={{ fontSize: 11, padding: "3px 8px" }}>
+                取消
+              </button>
+              <button className="btn-secondary" onClick={handleSave} style={{ fontSize: 11, padding: "3px 8px" }}>
+                保存修改
+              </button>
+            </div>
+          </div>
+        ) : (
+          <pre style={{
+            fontSize: 11, lineHeight: 1.5, color: "var(--text-secondary)",
+            maxHeight: 300, overflow: "auto", whiteSpace: "pre-wrap",
+            padding: 12, background: "var(--bg-secondary)", borderRadius: 6,
+          }}>
+            {JSON.stringify(result, null, 2)}
+          </pre>
+        )
+      )}
+    </div>
+  );
+}
+
+/* ── Tag component ── */
+function Tag({ color, children }: { color: string; children: React.ReactNode }) {
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 600,
+      padding: "2px 8px", borderRadius: 10,
+      background: `${color}18`, color: color,
+    }}>
+      {children}
+    </span>
   );
 }

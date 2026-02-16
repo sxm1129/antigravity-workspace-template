@@ -20,15 +20,18 @@ class ProjectMode(str, enum.Enum):
 
 
 class ProjectStatus(str, enum.Enum):
-    """Project lifecycle statuses — supports forward and rollback transitions."""
+    """Project lifecycle statuses — simplified for episode-based architecture."""
 
     DRAFT = "DRAFT"
     OUTLINE_REVIEW = "OUTLINE_REVIEW"
+    # Legacy statuses kept for backward compatibility
     CHARACTER_DESIGN = "CHARACTER_DESIGN"
     SCRIPT_REVIEW = "SCRIPT_REVIEW"
     STORYBOARD = "STORYBOARD"
     PRODUCTION = "PRODUCTION"
     COMPOSING = "COMPOSING"
+    # New episode-based statuses
+    IN_PRODUCTION = "IN_PRODUCTION"
     COMPLETED = "COMPLETED"
 
 
@@ -38,13 +41,19 @@ _STATUS_ORDER: list[ProjectStatus] = list(ProjectStatus)
 # Explicit valid transitions: status -> set of reachable statuses
 VALID_TRANSITIONS: dict[ProjectStatus, set[ProjectStatus]] = {
     ProjectStatus.DRAFT: {ProjectStatus.OUTLINE_REVIEW},
-    ProjectStatus.OUTLINE_REVIEW: {ProjectStatus.CHARACTER_DESIGN, ProjectStatus.SCRIPT_REVIEW, ProjectStatus.DRAFT},
+    ProjectStatus.OUTLINE_REVIEW: {
+        ProjectStatus.CHARACTER_DESIGN,
+        ProjectStatus.SCRIPT_REVIEW,
+        ProjectStatus.IN_PRODUCTION,
+        ProjectStatus.DRAFT,
+    },
     ProjectStatus.CHARACTER_DESIGN: {ProjectStatus.SCRIPT_REVIEW, ProjectStatus.OUTLINE_REVIEW},
     ProjectStatus.SCRIPT_REVIEW: {ProjectStatus.STORYBOARD, ProjectStatus.CHARACTER_DESIGN, ProjectStatus.OUTLINE_REVIEW},
     ProjectStatus.STORYBOARD: {ProjectStatus.PRODUCTION, ProjectStatus.SCRIPT_REVIEW},
     ProjectStatus.PRODUCTION: {ProjectStatus.COMPOSING, ProjectStatus.STORYBOARD},
     ProjectStatus.COMPOSING: {ProjectStatus.COMPLETED, ProjectStatus.PRODUCTION},
-    ProjectStatus.COMPLETED: {ProjectStatus.SCRIPT_REVIEW},
+    ProjectStatus.IN_PRODUCTION: {ProjectStatus.COMPLETED, ProjectStatus.OUTLINE_REVIEW},
+    ProjectStatus.COMPLETED: {ProjectStatus.SCRIPT_REVIEW, ProjectStatus.IN_PRODUCTION},
 }
 
 
@@ -95,6 +104,12 @@ class Project(Base):
     # Relationships
     characters = relationship(
         "Character", back_populates="project", cascade="all, delete-orphan"
+    )
+    episodes = relationship(
+        "Episode",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="Episode.episode_number",
     )
     scenes = relationship(
         "Scene",

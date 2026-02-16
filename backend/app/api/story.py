@@ -11,10 +11,13 @@ All endpoints follow the strict Human-in-the-Loop pattern:
 - Generate content → return for human review → explicit APPROVE before next stage.
 """
 
+import json
 import uuid
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +27,7 @@ from app.models.project import Project, ProjectStatus
 from app.models.episode import Episode, EpisodeStatus
 from app.models.scene import Scene, SceneStatus
 from app.services import ai_writer
+from app.services.outline_pipeline import OutlinePipeline
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +70,140 @@ class StoryResponse(BaseModel):
     episodes_count: int | None = None
 
 
-@router.post("/generate-outline", response_model=StoryResponse)
+class ContinuePipelineRequest(BaseModel):
+    """Request to continue the pipeline from a specific step with modified data."""
+    project_id: str
+    start_from: int  # Step index to resume from (0-3)
+    intent_result: dict[str, Any] | None = None
+    world_result: dict[str, Any] | None = None
+    plot_result: dict[str, Any] | None = None
+
+
+# ---------------------------------------------------------------------------
+# SSE Pipeline endpoints
+# ---------------------------------------------------------------------------
+
+async def _pipeline_event_stream(
+    project_id: str,
+    logline: str,
+    style: str,
+    *,
+    start_from: int = 0,
+    prior_intent: dict | None = None,
+    prior_world: dict | None = None,
+    prior_plot: dict | None = None,
+):
+    """Async generator that yields SSE events from the outline pipeline."""
+    from app.database import async_session_factory
+
+    pipeline = OutlinePipeline()
+
+    try:
+        async for event in pipeline.run(
+            logline, style,
+            start_from=start_from,
+            prior_intent=prior_intent,
+            prior_world=prior_world,
+            prior_plot=prior_plot,
+        ):
+            # Yield as SSE format
+            event_data = event.model_dump(exclude_none=True)
+            yield f"event: {event.event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+
+            # On pipeline_complete, save the outline to DB
+            if event.event_type == "pipeline_complete" and event.outline:
+                async with async_session_factory() as db:
+                    project = await db.get(Project, project_id)
+                    if project:
+                        project.world_outline = event.outline
+                        project.status = ProjectStatus.OUTLINE_REVIEW.value
+                        await db.commit()
+    except Exception as e:
+        logger.exception("SSE stream error for project %s", project_id)
+        from app.services.agents.base import PipelineEvent
+        error_event = PipelineEvent(event_type="error", error=f"Stream error: {e}")
+        event_data = error_event.model_dump(exclude_none=True)
+        yield f"event: error\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+
+
+@router.post("/generate-outline-stream")
+async def generate_outline_stream(
+    req: GenerateOutlineRequest, db: AsyncSession = Depends(get_db)
+):
+    """Generate world outline using multi-agent pipeline with SSE progress.
+
+    Returns a text/event-stream with step_start, step_complete, and
+    pipeline_complete events for real-time progress display.
+    """
+    project = await db.get(Project, req.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if project.status != ProjectStatus.DRAFT.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project must be in DRAFT status (current: {project.status})",
+        )
+
+    if not project.logline:
+        raise HTTPException(status_code=400, detail="Project logline is empty")
+
+    logline = project.logline
+    style = project.style_preset or "default"
+
+    return StreamingResponse(
+        _pipeline_event_stream(project.id, logline, style),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/continue-pipeline")
+async def continue_pipeline(
+    req: ContinuePipelineRequest, db: AsyncSession = Depends(get_db)
+):
+    """Continue the pipeline from a specific step after user edits.
+
+    Allows users to modify intermediate results (e.g. characters)
+    and resume the pipeline from that point.
+    """
+    project = await db.get(Project, req.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not project.logline:
+        raise HTTPException(status_code=400, detail="Project logline is empty")
+
+    if not (0 <= req.start_from <= 3):
+        raise HTTPException(
+            status_code=400,
+            detail=f"start_from must be 0-3 (got: {req.start_from})",
+        )
+
+    logline = project.logline
+    style = project.style_preset or "default"
+
+    return StreamingResponse(
+        _pipeline_event_stream(
+            project.id, logline, style,
+            start_from=req.start_from,
+            prior_intent=req.intent_result,
+            prior_world=req.world_result,
+            prior_plot=req.plot_result,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 async def generate_outline(
     req: GenerateOutlineRequest, db: AsyncSession = Depends(get_db)
 ):

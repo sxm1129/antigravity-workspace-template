@@ -26,7 +26,7 @@ export default function ProjectDetailPage(props: { params: Promise<PageParams> }
     fetchProject(projectId);
   }, [projectId, fetchProject]);
 
-  const isWriterPhase = ["DRAFT", "OUTLINE_REVIEW", "SCRIPT_REVIEW"].includes(
+  const isWriterPhase = ["DRAFT", "OUTLINE_REVIEW", "IN_PRODUCTION", "COMPLETED"].includes(
     currentProject?.status || ""
   );
 

@@ -6,12 +6,15 @@ import {
   type Scene,
   type Character,
   type Episode,
+  type PipelineEvent,
   projectApi,
   sceneApi,
   characterApi,
   storyApi,
   assetApi,
   episodeApi,
+  generateOutlineStream as apiGenerateOutlineStream,
+  continuePipeline as apiContinuePipeline,
 } from "@/lib/api";
 
 interface ProjectStore {
@@ -23,6 +26,12 @@ interface ProjectStore {
   episodes: Episode[];
   loading: boolean;
   error: string | null;
+
+  // ── Pipeline state ──
+  pipelineActive: boolean;
+  pipelineCurrentStep: number;  // -1 = not started, 0-3 = running
+  pipelineSteps: { key: string; label: string; status: "pending" | "running" | "done" }[];
+  pipelineResults: Record<string, Record<string, unknown>>;  // step key -> result JSON
 
   // ── Projects ──
   fetchProjects: () => Promise<void>;
@@ -45,6 +54,10 @@ interface ProjectStore {
 
   // ── Story AI ──
   generateOutline: (projectId: string) => Promise<void>;
+  generateOutlineStream: (projectId: string) => Promise<void>;
+  continuePipelineFrom: (projectId: string, startFrom: number) => Promise<void>;
+  resetPipeline: () => void;
+  updatePipelineResult: (step: string, result: Record<string, unknown>) => void;
   regenerateOutline: (projectId: string, customPrompt?: string) => Promise<void>;
   generateScript: (projectId: string) => Promise<void>;
   parseScenes: (projectId: string) => Promise<void>;
@@ -74,6 +87,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   episodes: [],
   loading: false,
   error: null,
+
+  pipelineActive: false,
+  pipelineCurrentStep: -1,
+  pipelineSteps: [
+    { key: "intent", label: "意图识别", status: "pending" },
+    { key: "world", label: "世界观 & 角色构建", status: "pending" },
+    { key: "plot", label: "剧情架构", status: "pending" },
+    { key: "assemble", label: "组装大纲", status: "pending" },
+  ],
+  pipelineResults: {},
 
   setError: (err) => set({ error: err }),
 
@@ -174,12 +197,110 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const res = await storyApi.generateOutline(projectId);
-      // Refresh project to get updated outline + status
       const project = await projectApi.get(projectId);
       set({ currentProject: project, loading: false });
     } catch (e: unknown) {
       set({ error: (e as Error).message, loading: false });
     }
+  },
+
+  generateOutlineStream: async (projectId) => {
+    const freshSteps = [
+      { key: "intent", label: "意图识别", status: "pending" as const },
+      { key: "world", label: "世界观 & 角色构建", status: "pending" as const },
+      { key: "plot", label: "剧情架构", status: "pending" as const },
+      { key: "assemble", label: "组装大纲", status: "pending" as const },
+    ];
+    set({ loading: true, error: null, pipelineActive: true, pipelineCurrentStep: -1, pipelineSteps: freshSteps, pipelineResults: {} });
+    try {
+      await apiGenerateOutlineStream(projectId, (event: PipelineEvent) => {
+        const state = get();
+        if (event.event_type === "step_start" && event.step) {
+          const steps = state.pipelineSteps.map((s) =>
+            s.key === event.step ? { ...s, status: "running" as const } : s
+          );
+          set({ pipelineSteps: steps, pipelineCurrentStep: event.index ?? -1 });
+        } else if (event.event_type === "step_complete" && event.step && event.result) {
+          const steps = state.pipelineSteps.map((s) =>
+            s.key === event.step ? { ...s, status: "done" as const } : s
+          );
+          set({
+            pipelineSteps: steps,
+            pipelineResults: { ...state.pipelineResults, [event.step]: event.result },
+          });
+        } else if (event.event_type === "pipeline_complete") {
+          set({ pipelineActive: false, pipelineCurrentStep: 4 });
+        } else if (event.event_type === "error") {
+          set({ error: event.error || "Pipeline error", pipelineActive: false });
+        }
+      });
+      // Refresh project from DB
+      const project = await projectApi.get(projectId);
+      set({ currentProject: project, loading: false });
+    } catch (e: unknown) {
+      set({ error: (e as Error).message, loading: false, pipelineActive: false });
+    }
+  },
+
+  continuePipelineFrom: async (projectId, startFrom) => {
+    const state = get();
+    // Reset steps from startFrom onwards to pending
+    const steps = state.pipelineSteps.map((s, i) =>
+      i >= startFrom ? { ...s, status: "pending" as const } : s
+    );
+    set({ loading: true, error: null, pipelineActive: true, pipelineSteps: steps });
+    try {
+      await apiContinuePipeline(
+        projectId, startFrom,
+        state.pipelineResults.intent as Record<string, unknown> | undefined,
+        state.pipelineResults.world as Record<string, unknown> | undefined,
+        state.pipelineResults.plot as Record<string, unknown> | undefined,
+        (event: PipelineEvent) => {
+          const s = get();
+          if (event.event_type === "step_start" && event.step) {
+            const updated = s.pipelineSteps.map((st) =>
+              st.key === event.step ? { ...st, status: "running" as const } : st
+            );
+            set({ pipelineSteps: updated, pipelineCurrentStep: event.index ?? -1 });
+          } else if (event.event_type === "step_complete" && event.step && event.result) {
+            const updated = s.pipelineSteps.map((st) =>
+              st.key === event.step ? { ...st, status: "done" as const } : st
+            );
+            set({
+              pipelineSteps: updated,
+              pipelineResults: { ...s.pipelineResults, [event.step]: event.result },
+            });
+          } else if (event.event_type === "pipeline_complete") {
+            set({ pipelineActive: false, pipelineCurrentStep: 4 });
+          } else if (event.event_type === "error") {
+            set({ error: event.error || "Pipeline error", pipelineActive: false });
+          }
+        },
+      );
+      const project = await projectApi.get(projectId);
+      set({ currentProject: project, loading: false });
+    } catch (e: unknown) {
+      set({ error: (e as Error).message, loading: false, pipelineActive: false });
+    }
+  },
+
+  resetPipeline: () => {
+    set({
+      pipelineActive: false,
+      pipelineCurrentStep: -1,
+      pipelineSteps: [
+        { key: "intent", label: "意图识别", status: "pending" },
+        { key: "world", label: "世界观 & 角色构建", status: "pending" },
+        { key: "plot", label: "剧情架构", status: "pending" },
+        { key: "assemble", label: "组装大纲", status: "pending" },
+      ],
+      pipelineResults: {},
+    });
+  },
+
+  updatePipelineResult: (step, result) => {
+    const state = get();
+    set({ pipelineResults: { ...state.pipelineResults, [step]: result } });
   },
 
   regenerateOutline: async (projectId, customPrompt) => {

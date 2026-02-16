@@ -203,6 +203,104 @@ export const storyApi = {
     }),
 };
 
+// ──────── Pipeline SSE Types ────────
+
+export interface PipelineEvent {
+  event_type: "step_start" | "step_complete" | "pipeline_complete" | "error";
+  step?: string;       // intent | world | plot | assemble
+  label?: string;      // 用户可读的步骤名
+  index?: number;      // 0-3
+  total?: number;      // 4
+  result?: Record<string, unknown>;  // JSON result of a step
+  outline?: string;    // final markdown
+  error?: string;
+}
+
+/**
+ * Stream pipeline events via SSE (POST-based fetch + ReadableStream).
+ * Calls onEvent for each parsed event, returns when stream ends.
+ */
+export async function generateOutlineStream(
+  projectId: string,
+  onEvent: (event: PipelineEvent) => void,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/story/generate-outline-stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: projectId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  await _consumeSSE(res, onEvent);
+}
+
+/**
+ * Continue pipeline from a specific step with modified results.
+ */
+export async function continuePipeline(
+  projectId: string,
+  startFrom: number,
+  intentResult?: Record<string, unknown> | null,
+  worldResult?: Record<string, unknown> | null,
+  plotResult?: Record<string, unknown> | null,
+  onEvent?: (event: PipelineEvent) => void,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/story/continue-pipeline`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: projectId,
+      start_from: startFrom,
+      intent_result: intentResult || null,
+      world_result: worldResult || null,
+      plot_result: plotResult || null,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  if (onEvent) await _consumeSSE(res, onEvent);
+}
+
+/** Parse SSE text/event-stream from a fetch Response. */
+async function _consumeSSE(
+  res: Response,
+  onEvent: (event: PipelineEvent) => void,
+): Promise<void> {
+  const reader = res.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // Parse SSE frames: "event: ...\ndata: ...\n\n"
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() || "";  // keep incomplete frame
+
+    for (const frame of frames) {
+      if (!frame.trim()) continue;
+      const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
+      if (dataLine) {
+        try {
+          const event = JSON.parse(dataLine.slice(6)) as PipelineEvent;
+          onEvent(event);
+        } catch {
+          // skip malformed frames
+        }
+      }
+    }
+  }
+}
+
+
 // ──────── Episode API ────────
 
 export const episodeApi = {

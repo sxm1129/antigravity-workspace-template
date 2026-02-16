@@ -159,15 +159,40 @@ async def run_migration():
     from app.database import engine
 
     results = []
-    alters = [
-        "ALTER TABLE projects ADD COLUMN mode VARCHAR(20) DEFAULT 'STANDARD'",
-        "ALTER TABLE projects ADD COLUMN style_preset VARCHAR(50) DEFAULT 'default'",
-        "ALTER TABLE projects ADD COLUMN draft_progress TEXT NULL",
-        "ALTER TABLE projects ADD COLUMN final_video_path VARCHAR(500) NULL",
-        "ALTER TABLE characters ADD COLUMN reference_image_path VARCHAR(500) NULL",
-        "ALTER TABLE characters ADD COLUMN style_tags TEXT NULL",
-    ]
     async with engine.begin() as conn:
+        # -- Step 1: Create episodes table if missing --
+        create_episodes = """
+        CREATE TABLE IF NOT EXISTS episodes (
+            id VARCHAR(36) PRIMARY KEY,
+            project_id VARCHAR(36) NOT NULL,
+            episode_number INT NOT NULL DEFAULT 1,
+            title VARCHAR(255) NOT NULL DEFAULT '',
+            synopsis LONGTEXT NULL,
+            full_script LONGTEXT NULL,
+            final_video_path VARCHAR(1024) NULL,
+            status VARCHAR(50) NOT NULL DEFAULT 'SCRIPT_GENERATING',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_ep_project (project_id),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """
+        try:
+            await conn.execute(text(create_episodes))
+            results.append({"sql": "CREATE TABLE episodes", "status": "OK"})
+        except Exception as e:
+            results.append({"sql": "CREATE TABLE episodes", "status": f"SKIP: {e}"})
+
+        # -- Step 2: ALTER TABLE additions --
+        alters = [
+            "ALTER TABLE projects ADD COLUMN mode VARCHAR(20) DEFAULT 'STANDARD'",
+            "ALTER TABLE projects ADD COLUMN style_preset VARCHAR(50) DEFAULT 'default'",
+            "ALTER TABLE projects ADD COLUMN draft_progress TEXT NULL",
+            "ALTER TABLE projects ADD COLUMN final_video_path VARCHAR(500) NULL",
+            "ALTER TABLE characters ADD COLUMN reference_image_path VARCHAR(500) NULL",
+            "ALTER TABLE characters ADD COLUMN style_tags TEXT NULL",
+            "ALTER TABLE scenes ADD COLUMN episode_id VARCHAR(36) NULL",
+        ]
         for sql in alters:
             try:
                 await conn.execute(text(sql))
@@ -178,4 +203,5 @@ async def run_migration():
                 else:
                     results.append({"sql": sql[:60], "status": f"FAIL: {e}"})
     return {"results": results}
+
 
