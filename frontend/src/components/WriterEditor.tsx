@@ -2,6 +2,8 @@
 
 import { type Project, styleApi } from "@/lib/api";
 import { useProjectStore } from "@/stores/useProjectStore";
+import { useConfirmStore } from "@/stores/useConfirmStore";
+import { useToastStore } from "@/stores/useToastStore";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useCallback } from "react";
 
@@ -113,14 +115,32 @@ export default function WriterEditor({ project }: { project: Project }) {
     }
   };
 
-  const handleRollback = async () => {
-    if (!confirm("确定要回退到大纲审核阶段吗？")) return;
-    await rollbackToWriter(project.id);
+  const showConfirm = useConfirmStore((s) => s.showConfirm);
+  const showAlert = useConfirmStore((s) => s.showAlert);
+  const addToast = useToastStore((s) => s.addToast);
+
+  const handleRollback = () => {
+    showConfirm({
+      title: "回退确认",
+      message: "确定要回退到大纲审核阶段吗？已生成的剧本将被保留，但项目状态将重置。",
+      variant: "warning",
+      confirmText: "确认回退",
+      onConfirm: async () => {
+        await rollbackToWriter(project.id);
+      },
+    });
   };
 
-  const handleParseScenes = async (episodeId: string) => {
-    if (!confirm("确认剧本，开始解析分镜？")) return;
-    await parseEpisodeScenes(episodeId);
+  const handleParseScenes = (episodeId: string) => {
+    showConfirm({
+      title: "确认操作",
+      message: "确认剧本内容无误，开始解析分镜？解析后将进入导演看板。",
+      variant: "info",
+      confirmText: "确认，解析分镜",
+      onConfirm: async () => {
+        await parseEpisodeScenes(episodeId);
+      },
+    });
   };
 
   // ── Pipeline Progress Bar ──
@@ -607,7 +627,7 @@ function StepResultPanel({
       onUpdate(parsed);
       setEditing(false);
     } catch {
-      alert("JSON 格式错误，请修正后再保存");
+      useConfirmStore.getState().showAlert("JSON 格式错误，请修正后再保存", { variant: "danger" });
     }
   };
 

@@ -15,6 +15,7 @@ router = APIRouter()
 
 
 @router.get("/", response_model=list[SceneRead])
+@router.get("", response_model=list[SceneRead], include_in_schema=False)
 async def list_scenes(
     project_id: str,
     db: AsyncSession = Depends(get_db),
@@ -33,6 +34,7 @@ async def list_scenes(
 
 
 @router.post("/", response_model=SceneRead, status_code=201)
+@router.post("", response_model=SceneRead, status_code=201, include_in_schema=False)
 async def create_scene(
     project_id: str,
     data: SceneCreate,

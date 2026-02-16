@@ -15,6 +15,13 @@ router = APIRouter()
 settings = get_settings()
 
 
+@router.get("/check-llm")
+async def check_llm():
+    """Pre-check LLM API keys — verify which keys are valid before generation."""
+    from app.services.llm_client import check_llm_health
+    return await check_llm_health()
+
+
 def _check_redis() -> dict[str, Any]:
     """Check Redis connectivity and basic info."""
     t0 = time.time()

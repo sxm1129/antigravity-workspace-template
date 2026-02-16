@@ -113,6 +113,7 @@ app = FastAPI(
     description="工业级端到端漫剧创作引擎 — AI 编剧 → 本地资产生成 → 视频自动合成",
     version="0.1.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # CORS — allow frontend dev server (configurable via CORS_ORIGINS env)

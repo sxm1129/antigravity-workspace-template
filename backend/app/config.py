@@ -44,8 +44,11 @@ class Settings(BaseSettings):
     # --- OpenRouter (Story AI + Image Gen) ---
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_API_KEY: str = ""
+    OPENROUTER_API_KEYS: str = ""  # comma-separated keys for round-robin
     STORY_MODEL: str = "google/gemini-3-flash-preview"
     IMAGE_MODEL: str = "google/gemini-2.5-flash-image"
+    LLM_TIMEOUT: int = 180  # seconds per LLM call
+    LLM_MAX_RETRIES: int = 3  # max retries per call
 
     # --- Flux (Private Deployment) ---
     FLUX_API_BASE: str = "http://47.92.252.119:8080/api/v1"

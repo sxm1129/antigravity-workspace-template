@@ -20,6 +20,7 @@ router = APIRouter()
 
 
 @router.get("/", response_model=list[ProjectRead])
+@router.get("", response_model=list[ProjectRead], include_in_schema=False)
 async def list_projects(
     db: AsyncSession = Depends(get_db),
     limit: int = 50,
@@ -36,6 +37,7 @@ async def list_projects(
 
 
 @router.post("/", response_model=ProjectRead, status_code=201)
+@router.post("", response_model=ProjectRead, status_code=201, include_in_schema=False)
 async def create_project(data: ProjectCreate, db: AsyncSession = Depends(get_db)):
     """Create a new project in DRAFT status."""
     project = Project(

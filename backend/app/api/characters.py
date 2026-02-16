@@ -16,6 +16,7 @@ router = APIRouter()
 
 
 @router.get("/", response_model=list[CharacterRead])
+@router.get("", response_model=list[CharacterRead], include_in_schema=False)
 async def list_characters(
     project_id: str, db: AsyncSession = Depends(get_db)
 ):
@@ -27,6 +28,7 @@ async def list_characters(
 
 
 @router.post("/", response_model=CharacterRead, status_code=201)
+@router.post("", response_model=CharacterRead, status_code=201, include_in_schema=False)
 async def create_character(
     project_id: str,
     data: CharacterCreate,

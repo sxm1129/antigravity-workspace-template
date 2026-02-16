@@ -9,17 +9,13 @@ import json
 import logging
 import re
 
-import httpx
-
 from app.config import get_settings
+from app.services.llm_client import llm_call
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-OPENROUTER_URL = f"{settings.OPENROUTER_BASE_URL}/chat/completions"
-
-# Module-level httpx client for connection reuse (lazy init)
-_openrouter_client: httpx.AsyncClient | None = None
+# _call_openrouter is now a thin wrapper around llm_client.llm_call()
 
 OUTLINE_SYSTEM_PROMPT = """你是一位经验丰富的漫剧编剧。根据用户提供的一句话灵感（logline），
 请扩写出一个完整的故事大纲，包含：
@@ -267,43 +263,13 @@ async def _call_openrouter(
     user_prompt: str,
     json_mode: bool = False,
 ) -> str:
-    """Call OpenRouter chat completions API.
-
-    Uses google/gemini-3-flash-preview for story generation tasks.
-    Reuses a module-level httpx.AsyncClient for connection pooling.
-    """
-    headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://motionweaver.app",
-        "X-Title": "MotionWeaver",
-    }
-
-    body: dict = {
-        "model": settings.STORY_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.8,
-        "max_tokens": 8192,
-    }
-    if json_mode:
-        body["response_format"] = {"type": "json_object"}
-
-    logger.info("Calling OpenRouter model=%s json_mode=%s", settings.STORY_MODEL, json_mode)
-
-    global _openrouter_client
-    if _openrouter_client is None:
-        _openrouter_client = httpx.AsyncClient(timeout=180.0)
-
-    response = await _openrouter_client.post(OPENROUTER_URL, headers=headers, json=body)
-    response.raise_for_status()
-
-    data = response.json()
-    content = data["choices"][0]["message"]["content"]
-    logger.info("OpenRouter response received, length=%d", len(content))
-    return content
+    """Call LLM via unified llm_client (multi-key rotation + retry)."""
+    return await llm_call(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        json_mode=json_mode,
+        caller="ai_writer",
+    )
 
 
 # ---------------------------------------------------------------------------

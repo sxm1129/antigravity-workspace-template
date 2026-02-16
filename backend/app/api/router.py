@@ -16,7 +16,7 @@ from app.api.metrics import router as metrics_router
 from app.api.system import router as system_router
 from app.api.render import router as render_router
 
-api_router = APIRouter(prefix="/api")
+api_router = APIRouter(prefix="/api", redirect_slashes=False)
 
 api_router.include_router(projects_router, prefix="/projects", tags=["Projects"])
 api_router.include_router(characters_router, prefix="/projects/{project_id}/characters", tags=["Characters"])

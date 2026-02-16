@@ -410,6 +410,11 @@ async def extract_episodes_and_generate_scripts(
         db.add(episode)
         created_episodes.append(episode)
 
+        # Incremental save — commit each episode so prior work isn't lost
+        # if a later LLM call fails
+        await _flush_with_retry(db)
+        logger.info("Episode %d saved to DB (%s)", episode_number, episode.status)
+
     # Step 4: Advance project to IN_PRODUCTION
     project.status = ProjectStatus.IN_PRODUCTION.value
     await _flush_with_retry(db)

@@ -7,26 +7,13 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
-import httpx
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
+from app.services.llm_client import llm_call
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-
-OPENROUTER_URL = f"{settings.OPENROUTER_BASE_URL}/chat/completions"
-
-# Shared HTTP client for LLM calls — reuse connections across agents
-_http_client: httpx.AsyncClient | None = None
-
-
-def _get_http_client() -> httpx.AsyncClient:
-    """Lazy-init a shared httpx client with long timeout."""
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(timeout=180.0)
-    return _http_client
 
 
 # ---------------------------------------------------------------------------
@@ -140,39 +127,13 @@ class BaseAgent(ABC):
         user_prompt: str,
         json_mode: bool = False,
     ) -> str:
-        """Call OpenRouter chat completions API."""
-        headers = {
-            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://motionweaver.app",
-            "X-Title": "MotionWeaver",
-        }
-
-        body: dict = {
-            "model": settings.STORY_MODEL,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.8,
-            "max_tokens": 8192,
-        }
-        if json_mode:
-            body["response_format"] = {"type": "json_object"}
-
-        logger.info(
-            "[%s] Calling LLM model=%s json_mode=%s",
-            self.name, settings.STORY_MODEL, json_mode,
+        """Call LLM via unified llm_client (multi-key rotation + retry)."""
+        return await llm_call(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            json_mode=json_mode,
+            caller=self.name,
         )
-
-        client = _get_http_client()
-        response = await client.post(OPENROUTER_URL, headers=headers, json=body)
-        response.raise_for_status()
-
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
-        logger.info("[%s] LLM response received, length=%d", self.name, len(content))
-        return content
 
     @staticmethod
     def _extract_json(text: str) -> dict:
