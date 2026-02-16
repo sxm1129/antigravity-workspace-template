@@ -3,18 +3,24 @@
  * VideoEditor — Full-screen video composition editor.
  *
  * Auto-detects compose provider:
- * - Remotion: Shows Remotion Studio preview via iframe + timeline + property panel
+ * - Remotion: Renders @remotion/player inline with ComicDrama composition
  * - FFmpeg: Shows scene list + one-click render button
  *
- * DECOUPLING: The Remotion project (remotion/) is a separate package.
- * Preview is rendered via Remotion Studio iframe, NOT by importing
- * Remotion components into the Next.js bundle.
+ * The webpack alias @remotion-project resolves to ../remotion/src/
+ * so ComicDrama is bundled directly into the Next.js build.
  */
 
 import React, { useEffect, useState, useCallback } from "react";
+import { Player } from "@remotion/player";
+import type { ComicDramaProps } from "@/remotion-compositions/types";
 import { useRenderStore } from "@/stores/useRenderStore";
 
-const REMOTION_STUDIO_URL = "http://localhost:3333";
+// Lazy-load ComicDrama to avoid SSR issues with Remotion
+const LazyComicDrama = React.lazy(() =>
+  import("@/remotion-compositions/ComicDrama").then((mod) => ({
+    default: mod.ComicDrama,
+  }))
+);
 
 interface VideoEditorProps {
   projectId: string;
@@ -114,18 +120,24 @@ export default function VideoEditor({ projectId }: VideoEditorProps) {
       <div style={styles.mainLayout}>
         {/* Left: Preview */}
         <div style={styles.previewPanel}>
-          {isRemotion ? (
-            <iframe
-              src={REMOTION_STUDIO_URL}
-              style={{
-                width: "100%",
-                height: "100%",
-                border: "none",
-                borderRadius: 8,
-              }}
-              title="Remotion Studio Preview"
-              allow="autoplay"
-            />
+          {isRemotion && previewProps && !propsLoading ? (
+            <React.Suspense
+              fallback={
+                <div style={styles.previewPlaceholder}>加载预览组件...</div>
+              }
+            >
+              <Player
+                component={LazyComicDrama as unknown as React.LazyExoticComponent<React.FC<Record<string, unknown>>>}
+                inputProps={previewProps as unknown as ComicDramaProps}
+                durationInFrames={calculateTotalFrames(previewProps)}
+                fps={(previewProps.fps as number) || 24}
+                compositionWidth={(previewProps.width as number) || 1920}
+                compositionHeight={(previewProps.height as number) || 1080}
+                style={{ width: "100%", aspectRatio: "16/9", borderRadius: 8 }}
+                controls
+                autoPlay={false}
+              />
+            </React.Suspense>
           ) : (
             <div style={styles.previewPlaceholder}>
               {propsLoading ? (

@@ -13,6 +13,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@remotion/player": "^4.0.422",
+    "@remotion/transitions": "^4.0.422",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",

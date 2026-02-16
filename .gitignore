@@ -52,3 +52,4 @@ frontend/.env.local
 *.wav
 *.mp3
 .tasks/
+remotion/node_modules/
