@@ -53,6 +53,7 @@ export default function WriterEditor({ project }: { project: Project }) {
   const [customPrompt, setCustomPrompt] = useState("");
   const [defaultPrompt, setDefaultPrompt] = useState("");
   const [promptLoading, setPromptLoading] = useState(false);
+  const [parsingEpisodeId, setParsingEpisodeId] = useState<string | null>(null);
   const info = STATUS_INFO[project.status];
 
   // Whether we're past the writer phase (episodes created)
@@ -138,7 +139,12 @@ export default function WriterEditor({ project }: { project: Project }) {
       variant: "info",
       confirmText: "确认，解析分镜",
       onConfirm: async () => {
-        await parseEpisodeScenes(episodeId);
+        setParsingEpisodeId(episodeId);
+        try {
+          await parseEpisodeScenes(episodeId);
+        } finally {
+          setParsingEpisodeId(null);
+        }
       },
     });
   };
@@ -322,10 +328,10 @@ export default function WriterEditor({ project }: { project: Project }) {
                     <button
                       className="btn-primary"
                       style={{ fontSize: 12, padding: "6px 12px" }}
-                      disabled={loading}
+                      disabled={parsingEpisodeId != null}
                       onClick={() => handleParseScenes(ep.id)}
                     >
-                      {loading ? "解析中..." : "确认剧本，解析分镜"}
+                      {parsingEpisodeId === ep.id ? "解析中..." : "确认剧本，解析分镜"}
                     </button>
                   )}
                   {canNavigate && (
