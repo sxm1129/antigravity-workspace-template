@@ -60,3 +60,19 @@ async def reload_prompts():
     """Reload prompt template cache (admin use)."""
     PromptManager.reload()
     return {"status": "reloaded"}
+
+
+@router.get("/{style_id}/prompts/{template_name}")
+async def get_prompt_template(style_id: str, template_name: str):
+    """Get the raw content of a prompt template for editing.
+
+    Example: GET /api/styles/default/prompts/outline
+    """
+    content = PromptManager.get_prompt(template_name, style_id)
+    if not content:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=404,
+            detail=f"Prompt template '{template_name}' not found for style '{style_id}'",
+        )
+    return {"style": style_id, "template": template_name, "content": content}

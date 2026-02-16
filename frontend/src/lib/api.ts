@@ -11,6 +11,7 @@ export interface Project {
   world_outline: string | null;
   full_script: string | null;
   final_video_path: string | null;
+  style_preset: string | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -27,6 +28,7 @@ export interface Character {
 export interface Scene {
   id: string;
   project_id: string;
+  episode_id: string | null;
   sequence_order: number;
   dialogue_text: string | null;
   prompt_visual: string | null;
@@ -38,11 +40,26 @@ export interface Scene {
   status: string;
 }
 
+export interface Episode {
+  id: string;
+  project_id: string;
+  episode_number: number;
+  title: string;
+  synopsis: string | null;
+  full_script: string | null;
+  final_video_path: string | null;
+  status: string;
+  scenes_count: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StoryResponse {
   project_id: string;
   status: string;
   content?: string | null;
   scenes_count?: number | null;
+  episodes_count?: number | null;
 }
 
 export interface TaskDispatchResult {
@@ -166,6 +183,49 @@ export const storyApi = {
       method: "POST",
       body: JSON.stringify({ project_id: projectId }),
     }),
+
+  extractAndGenerate: (projectId: string) =>
+    fetcher<StoryResponse>("/api/story/extract-and-generate", {
+      method: "POST",
+      body: JSON.stringify({ project_id: projectId }),
+    }),
+
+  parseEpisodeScenes: (episodeId: string) =>
+    fetcher<StoryResponse>("/api/story/parse-episode-scenes", {
+      method: "POST",
+      body: JSON.stringify({ episode_id: episodeId }),
+    }),
+
+  regenerateOutline: (projectId: string, customPrompt?: string) =>
+    fetcher<StoryResponse>("/api/story/regenerate-outline", {
+      method: "POST",
+      body: JSON.stringify({ project_id: projectId, custom_prompt: customPrompt || null }),
+    }),
+};
+
+// ──────── Episode API ────────
+
+export const episodeApi = {
+  list: (projectId: string) =>
+    fetcher<Episode[]>(`/api/projects/${projectId}/episodes`),
+
+  get: (episodeId: string) =>
+    fetcher<Episode>(`/api/episodes/${episodeId}`),
+
+  update: (episodeId: string, data: Partial<Episode>) =>
+    fetcher<Episode>(`/api/episodes/${episodeId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  advanceStatus: (episodeId: string, targetStatus: string) =>
+    fetcher<Episode>(`/api/episodes/${episodeId}/advance-status`, {
+      method: "POST",
+      body: JSON.stringify({ target_status: targetStatus }),
+    }),
+
+  listScenes: (episodeId: string) =>
+    fetcher<Scene[]>(`/api/episodes/${episodeId}/scenes`),
 };
 
 // ──────── Asset API ────────
@@ -235,6 +295,11 @@ export interface StylePreset {
 
 export const styleApi = {
   list: () => fetcher<{ styles: StylePreset[] }>("/api/styles/"),
+
+  getPromptTemplate: (styleId: string, templateName: string) =>
+    fetcher<{ style: string; template: string; content: string }>(
+      `/api/styles/${styleId}/prompts/${templateName}`
+    ),
 };
 
 // ──────── Media URL helper ────────

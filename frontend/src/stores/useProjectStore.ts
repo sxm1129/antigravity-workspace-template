@@ -5,11 +5,13 @@ import {
   type Project,
   type Scene,
   type Character,
+  type Episode,
   projectApi,
   sceneApi,
   characterApi,
   storyApi,
   assetApi,
+  episodeApi,
 } from "@/lib/api";
 
 interface ProjectStore {
@@ -18,6 +20,7 @@ interface ProjectStore {
   currentProject: Project | null;
   scenes: Scene[];
   characters: Character[];
+  episodes: Episode[];
   loading: boolean;
   error: string | null;
 
@@ -35,8 +38,14 @@ interface ProjectStore {
   fetchCharacters: (projectId: string) => Promise<void>;
   createCharacter: (projectId: string, name: string, prompt?: string) => Promise<void>;
 
+  // ── Episodes ──
+  fetchEpisodes: (projectId: string) => Promise<void>;
+  extractAndGenerate: (projectId: string) => Promise<void>;
+  parseEpisodeScenes: (episodeId: string) => Promise<void>;
+
   // ── Story AI ──
   generateOutline: (projectId: string) => Promise<void>;
+  regenerateOutline: (projectId: string, customPrompt?: string) => Promise<void>;
   generateScript: (projectId: string) => Promise<void>;
   parseScenes: (projectId: string) => Promise<void>;
 
@@ -62,6 +71,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   currentProject: null,
   scenes: [],
   characters: [],
+  episodes: [],
   loading: false,
   error: null,
 
@@ -92,14 +102,15 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   fetchProject: async (id) => {
-    set({ loading: true, error: null, currentProject: null, scenes: [], characters: [] });
+    set({ loading: true, error: null, currentProject: null, scenes: [], characters: [], episodes: [] });
     try {
       const project = await projectApi.get(id);
       set({ currentProject: project, loading: false });
-      // Also fetch scenes and characters
+      // Also fetch scenes, characters, and episodes
       const scenes = await sceneApi.list(id);
       const characters = await characterApi.list(id);
-      set({ scenes, characters });
+      const episodes = await episodeApi.list(id);
+      set({ scenes, characters, episodes });
     } catch (e: unknown) {
       set({ error: (e as Error).message, loading: false });
     }
@@ -171,6 +182,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
   },
 
+  regenerateOutline: async (projectId, customPrompt) => {
+    set({ loading: true, error: null });
+    try {
+      await storyApi.regenerateOutline(projectId, customPrompt);
+      const project = await projectApi.get(projectId);
+      set({ currentProject: project, loading: false });
+    } catch (e: unknown) {
+      set({ error: (e as Error).message, loading: false });
+    }
+  },
+
   generateScript: async (projectId) => {
     set({ loading: true, error: null });
     try {
@@ -189,6 +211,44 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       const project = await projectApi.get(projectId);
       const scenes = await sceneApi.list(projectId);
       set({ currentProject: project, scenes, loading: false });
+    } catch (e: unknown) {
+      set({ error: (e as Error).message, loading: false });
+    }
+  },
+
+  // ── Episodes ──
+
+  fetchEpisodes: async (projectId) => {
+    try {
+      const episodes = await episodeApi.list(projectId);
+      set({ episodes });
+    } catch (e: unknown) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  extractAndGenerate: async (projectId) => {
+    set({ loading: true, error: null });
+    try {
+      await storyApi.extractAndGenerate(projectId);
+      const project = await projectApi.get(projectId);
+      const episodes = await episodeApi.list(projectId);
+      set({ currentProject: project, episodes, loading: false });
+    } catch (e: unknown) {
+      set({ error: (e as Error).message, loading: false });
+    }
+  },
+
+  parseEpisodeScenes: async (episodeId) => {
+    set({ loading: true, error: null });
+    try {
+      await storyApi.parseEpisodeScenes(episodeId);
+      // Refresh episode
+      const episode = await episodeApi.get(episodeId);
+      set((s) => ({
+        episodes: s.episodes.map((ep) => (ep.id === episodeId ? episode : ep)),
+        loading: false,
+      }));
     } catch (e: unknown) {
       set({ error: (e as Error).message, loading: false });
     }
@@ -260,9 +320,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   rollbackToWriter: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      const project = await projectApi.advanceStatus(projectId, "SCRIPT_REVIEW");
-      const scenes = await sceneApi.list(projectId);
-      set({ currentProject: project, scenes, loading: false });
+      const project = await projectApi.advanceStatus(projectId, "OUTLINE_REVIEW");
+      const episodes = await episodeApi.list(projectId);
+      set({ currentProject: project, episodes, loading: false });
     } catch (e: unknown) {
       set({ error: (e as Error).message, loading: false });
     }
@@ -305,6 +365,6 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   clearCurrentProject: () => {
-    set({ currentProject: null, scenes: [], characters: [], error: null });
+    set({ currentProject: null, scenes: [], characters: [], episodes: [], error: null });
   },
 }));

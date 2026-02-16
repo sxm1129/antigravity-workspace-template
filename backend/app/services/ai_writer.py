@@ -87,12 +87,13 @@ EPISODE_SCRIPT_SYSTEM_PROMPT = """你是一位经验丰富的漫剧编剧。请�
 请用 Markdown 格式输出，使用场景编号标记。"""
 
 
-async def generate_outline(logline: str, style: str = "default") -> str:
+async def generate_outline(logline: str, style: str = "default", custom_prompt: str | None = None) -> str:
     """Generate a world outline from a logline.
 
     Args:
         logline: A one-sentence story idea.
         style: Style preset name for prompt template selection.
+        custom_prompt: Optional user-edited system prompt (highest priority).
 
     Returns:
         Markdown-formatted story outline with world-building.
@@ -100,9 +101,12 @@ async def generate_outline(logline: str, style: str = "default") -> str:
     if settings.USE_MOCK_API:
         return _mock_outline(logline, style)
 
-    # Load style-specific prompt template, fallback to hardcoded default
-    from app.prompts.manager import PromptManager
-    system_prompt = PromptManager.get_prompt("outline", style) or OUTLINE_SYSTEM_PROMPT
+    # Priority: custom_prompt > style template > hardcoded default
+    if custom_prompt:
+        system_prompt = custom_prompt
+    else:
+        from app.prompts.manager import PromptManager
+        system_prompt = PromptManager.get_prompt("outline", style) or OUTLINE_SYSTEM_PROMPT
 
     return await _call_openrouter(
         system_prompt=system_prompt,

@@ -47,6 +47,12 @@ class ExtractAndGenerateRequest(BaseModel):
     project_id: str
 
 
+class RegenerateOutlineRequest(BaseModel):
+    """Request to regenerate outline with optional custom prompt."""
+    project_id: str
+    custom_prompt: str | None = None
+
+
 class ParseEpisodeScenesRequest(BaseModel):
     """Request to parse scenes for a single episode."""
     episode_id: str
@@ -92,6 +98,46 @@ async def generate_outline(
     # Write result back with a new DB operation
     project.world_outline = outline
     project.status = ProjectStatus.OUTLINE_REVIEW.value
+    await db.flush()
+    await db.refresh(project)
+
+    return StoryResponse(
+        project_id=project.id,
+        status=project.status,
+        content=outline,
+    )
+
+
+@router.post("/regenerate-outline", response_model=StoryResponse)
+async def regenerate_outline(
+    req: RegenerateOutlineRequest, db: AsyncSession = Depends(get_db)
+):
+    """Regenerate world outline for a project in OUTLINE_REVIEW status.
+
+    Allows users to regenerate the outline if unsatisfied, optionally
+    with a custom system prompt they have edited.
+    """
+    project = await db.get(Project, req.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if project.status != ProjectStatus.OUTLINE_REVIEW.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project must be in OUTLINE_REVIEW status (current: {project.status})",
+        )
+
+    if not project.logline:
+        raise HTTPException(status_code=400, detail="Project logline is empty")
+
+    logline = project.logline
+    style = project.style_preset or "default"
+
+    outline = await ai_writer.generate_outline(
+        logline, style=style, custom_prompt=req.custom_prompt
+    )
+
+    project.world_outline = outline
     await db.flush()
     await db.refresh(project)
 
