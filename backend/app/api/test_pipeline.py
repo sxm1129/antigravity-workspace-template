@@ -62,7 +62,7 @@ async def run_full_pipeline(
 
         logger.info("Stage 1: Generating outline for project %s", req.project_id)
         try:
-            outline = await generate_outline(project.logline)
+            outline = await generate_outline(project.logline, style=project.style_preset or "default")
             project.world_outline = outline
             project.status = ProjectStatus.OUTLINE_REVIEW.value
             await db.flush()

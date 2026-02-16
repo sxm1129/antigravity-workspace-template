@@ -57,21 +57,55 @@ PARSE_SCENES_SYSTEM_PROMPT = """你是一个专业的漫剧分镜拆解助手。
 3. prompt_motion 描述动作和镜头运动
 4. 严格输出合法 JSON"""
 
+EXTRACT_EPISODES_SYSTEM_PROMPT = """你是一个专业的漫剧编剧助手。请从以下世界观大纲中提取所有剧集信息。
 
-async def generate_outline(logline: str) -> str:
+严格按以下 JSON 格式输出：
+{
+  "episodes": [
+    {
+      "episode_number": 1,
+      "title": "剧集标题",
+      "synopsis": "该剧集的完整概要，包含关键情节和钩子"
+    }
+  ]
+}
+
+要求：
+1. 按照大纲中剧集出现的顺序提取
+2. title 只需要标题名，不包含"第X集"前缀
+3. synopsis 要尽可能保留原文的关键幕和钩子信息
+4. 严格输出合法 JSON"""
+
+EPISODE_SCRIPT_SYSTEM_PROMPT = """你是一位经验丰富的漫剧编剧。请根据以下世界观大纲和特定剧集概要，
+扩写出这一集的完整对白剧本。要求：
+1. 包含场景描述（时间、地点、氛围）
+2. 角色对白（含表情、动作指示）
+3. 旁白和音效提示
+4. 分镜提示（画面描述）
+5. 剧本应该有5-8个场景，确保情节完整
+
+请用 Markdown 格式输出，使用场景编号标记。"""
+
+
+async def generate_outline(logline: str, style: str = "default") -> str:
     """Generate a world outline from a logline.
 
     Args:
         logline: A one-sentence story idea.
+        style: Style preset name for prompt template selection.
 
     Returns:
         Markdown-formatted story outline with world-building.
     """
     if settings.USE_MOCK_API:
-        return _mock_outline(logline)
+        return _mock_outline(logline, style)
+
+    # Load style-specific prompt template, fallback to hardcoded default
+    from app.prompts.manager import PromptManager
+    system_prompt = PromptManager.get_prompt("outline", style) or OUTLINE_SYSTEM_PROMPT
 
     return await _call_openrouter(
-        system_prompt=OUTLINE_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_prompt=f"灵感：{logline}",
     )
 
@@ -124,6 +158,68 @@ async def parse_scenes(script: str) -> list[dict]:
     except (json.JSONDecodeError, ValueError) as e:
         logger.error("Failed to parse JSON response: %s\nRaw: %s", e, response_text[:500])
         raise ValueError(f"AI returned invalid JSON for scene parsing: {e}")
+
+
+async def extract_episodes(outline: str) -> list[dict]:
+    """Extract episode information from a world outline.
+
+    Args:
+        outline: The world outline containing episode descriptions.
+
+    Returns:
+        List of dicts with episode_number, title, synopsis.
+    """
+    if settings.USE_MOCK_API:
+        return _mock_extract_episodes(outline)
+
+    response_text = await _call_openrouter(
+        system_prompt=EXTRACT_EPISODES_SYSTEM_PROMPT,
+        user_prompt=f"世界观大纲：\n\n{outline}",
+        json_mode=True,
+    )
+
+    json_text = _extract_json_text(response_text)
+
+    try:
+        data = json.loads(json_text)
+        episodes = data.get("episodes", data) if isinstance(data, dict) else data
+        if isinstance(episodes, list):
+            return episodes
+        raise ValueError(f"Expected list of episodes, got {type(episodes).__name__}")
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error("Failed to parse episode JSON: %s\nRaw: %s", e, response_text[:500])
+        raise ValueError(f"AI returned invalid JSON for episode extraction: {e}")
+
+
+async def generate_episode_script(outline: str, episode_number: int, episode_title: str, episode_synopsis: str) -> str:
+    """Generate a full script for a single episode.
+
+    Args:
+        outline: The full world outline for context.
+        episode_number: The episode number.
+        episode_title: The episode title.
+        episode_synopsis: The episode synopsis/summary.
+
+    Returns:
+        Markdown-formatted full script for this episode.
+    """
+    if settings.USE_MOCK_API:
+        return _mock_episode_script(episode_number, episode_title, episode_synopsis)
+
+    user_prompt = f"""世界观大纲：
+{outline}
+
+---
+
+请为以下剧集编写完整的对白剧本：
+
+第{episode_number}集：{episode_title}
+剧集概要：{episode_synopsis}"""
+
+    return await _call_openrouter(
+        system_prompt=EPISODE_SCRIPT_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+    )
 
 
 def _extract_json_text(text: str) -> str:
@@ -201,40 +297,46 @@ async def _call_openrouter(
 # Mock implementations (kept for testing with USE_MOCK_API=True)
 # ---------------------------------------------------------------------------
 
-def _mock_outline(logline: str) -> str:
+def _mock_outline(logline: str, style: str = "default") -> str:
     return f"""# 故事大纲：{logline}
 
 ## 世界观设定
-在一个充满科技与魔法并存的近未来都市中，人类发现了一种名为"心灵之石"的神秘矿物，
-它能将人的情感转化为可视化的能量。
+基于「{logline}」的灵感，故事发生在一个独特而引人入胜的世界中。
+这个世界围绕着故事核心概念构建，融合了奇幻与现实的元素。
 
 ## 主要角色
-### 林小雨
+### 主角 A
 - **外貌**：黑色长发，大眼睛，常穿蓝色校服，身高165cm
 - **性格**：善良温柔，内向但坚定
-- **特点**：天生拥有极强的"心灵感应"能力
+- **特点**：与「{logline}」的核心设定有着深层联系
 
-### 陈风
+### 主角 B
 - **外貌**：棕色短发，高挺的鼻子，穿黑色夹克，身高178cm
 - **性格**：外向开朗，正义感强
-- **特点**：擅长将情感能量转化为物理力量
+- **特点**：在故事中扮演关键的辅助角色
+
+### 反派
+- **外貌**：银白色头发，冷峻面容，穿深色长衣
+- **性格**：冷静而野心勃勃
+- **特点**：企图利用故事中的核心力量达成目的
 
 ## 故事主线
 
-### 第一幕：相遇
-林小雨在学校图书馆中意外激活了一颗远古心灵之石，释放出强大的能量波动。
-陈风感知到波动赶来，两人初次相遇。
+### 第一集：序章 — 命运的开端
+围绕「{logline}」的故事灵感，主角 A 在一次偶然事件中发现了改变命运的契机。
+主角 B 因缘际会出现，两人初次相遇并被卷入一场更大的漩涡。
 
-### 第二幕：危机
-一个神秘组织"暗影会"出现，他们企图收集心灵之石来控制整座城市。
-林小雨和陈风被卷入冲突。
+### 第二集：危机 — 暗流涌动
+随着事件发展，反派势力浮出水面，主角团面临第一个重大危机。
+围绕「{logline}」的核心冲突逐渐升级。
 
-### 第三幕：成长
-在逃亡与战斗中，两人学会了合作，并发现了心灵之石更深层的秘密。
+### 第三集：成长 — 破茧之路
+在逃亡与挑战中，主角们学会了合作与信任，
+并发现了隐藏在故事核心设定背后更深层的秘密。
 
-### 第四幕：决战
-最终决战中，林小雨牺牲自己的能力封印了暗影会的野心，
-但心灵之石的碎片散落世界各地，暗示着新的冒险即将开始。
+### 第四集：决战 — 光明与黑暗
+最终对决来临，主角团面对反派的野心，做出艰难的抉择。
+故事以一个充满希望但留有悬念的方式收束，为续集埋下伏笔。
 """
 
 
@@ -319,3 +421,63 @@ def _mock_parse_scenes(script: str) -> list[dict]:
             "sfx_text": None,
         },
     ]
+
+
+def _mock_extract_episodes(outline: str) -> list[dict]:
+    """Mock episode extraction for testing."""
+    return [
+        {
+            "episode_number": 1,
+            "title": "相遇",
+            "synopsis": "林小雨在学校图书馆中意外激活了一颗远古心灵之石，释放出强大的能量波动。陈风感知到波动赶来，两人初次相遇。",
+        },
+        {
+            "episode_number": 2,
+            "title": "危机",
+            "synopsis": "一个神秘组织\"暗影会\"出现，他们企图收集心灵之石来控制整座城市。林小雨和陈风被卷入冲突。",
+        },
+        {
+            "episode_number": 3,
+            "title": "成长",
+            "synopsis": "在逃亡与战斗中，两人学会了合作，并发现了心灵之石更深层的秘密。",
+        },
+    ]
+
+
+def _mock_episode_script(episode_number: int, episode_title: str, episode_synopsis: str) -> str:
+    """Mock episode script for testing."""
+    return f"""# 第{episode_number}集：{episode_title}
+
+## 场景 1
+**地点：** 学校图书馆
+**时间：** 黄昏
+**氛围：** 暖黄色的光线，宁静的氛围。
+
+**【画面】**
+1. 远景：校园全景，夕阳西下。
+2. 中景：图书馆内部，书架整齐排列。
+
+**旁白：**
+{episode_synopsis}
+
+## 场景 2
+**地点：** 校门口
+**时间：** 日暮
+
+**角色A：**
+"我们必须找到答案。"
+
+**角色B：**
+"一起走吧。"
+
+## 场景 3
+**地点：** 神秘洞穴
+**时间：** 夜晚
+
+**角色A：**
+"你看到了吗？那道光..."
+
+**【音效】**
+（远处传来回响声）
+"""
+

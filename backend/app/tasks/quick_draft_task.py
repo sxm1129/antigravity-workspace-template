@@ -43,7 +43,7 @@ def run_quick_draft(self, project_id: str, logline: str, style: str = "default")
 
         # Step 1: Generate outline
         from app.services.ai_writer import generate_outline
-        outline = run_async(generate_outline(logline))
+        outline = run_async(generate_outline(logline, style=style))
         run_async(_update_project_fields(project_id, world_outline=outline,
                                           status=ProjectStatus.OUTLINE_REVIEW.value))
 
