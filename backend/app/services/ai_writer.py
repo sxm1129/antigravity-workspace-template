@@ -302,45 +302,158 @@ async def _call_openrouter(
 # ---------------------------------------------------------------------------
 
 def _mock_outline(logline: str, style: str = "default") -> str:
+    """Generate a mock outline with content dynamically derived from the logline.
+
+    Uses keyword extraction and theme mapping to produce characters
+    and plot that are contextually relevant to the user's story idea.
+    """
+    import re
+    import hashlib
+
+    # --- Keyword extraction (simple Chinese-aware) ---
+    logline_lower = logline.lower()
+
+    # Theme detection via keyword groups
+    _THEMES = {
+        "亲情": ["爸爸", "妈妈", "父亲", "母亲", "爷爷", "奶奶", "家人", "孩子", "儿子", "女儿", "家庭"],
+        "校园": ["学校", "校园", "同学", "老师", "考试", "高中", "大学", "班级", "课堂"],
+        "职场": ["公司", "老板", "程序员", "医生", "律师", "工程师", "职场", "办公室", "上班"],
+        "冒险": ["探险", "冒险", "发现", "神秘", "宝藏", "旅行", "穿越", "异世界"],
+        "科幻": ["机器人", "太空", "未来", "科技", "AI", "星球", "飞船", "时空"],
+        "历史": ["古代", "朝代", "皇帝", "太医", "将军", "宫廷", "三国", "唐朝", "清朝"],
+        "都市": ["城市", "都市", "街道", "咖啡", "地铁", "北京", "上海", "深圳"],
+        "交通": ["火车", "列车", "高铁", "货运", "车站", "铁路", "飞机", "轮船", "汽车"],
+        "美食": ["料理", "厨师", "美食", "餐厅", "烹饪", "食材", "味道"],
+        "体育": ["足球", "篮球", "比赛", "运动", "训练", "冠军", "教练"],
+    }
+
+    detected_themes = []
+    for theme, keywords in _THEMES.items():
+        for kw in keywords:
+            if kw in logline:
+                detected_themes.append(theme)
+                break
+
+    # Extract specific nouns/entities from the logline for use in content
+    # Use a simple approach: split by common Chinese particles and punctuation
+    _PARTICLES = set("的了在是和与去到从把被也都还有个一不我你他她它们这那而且但")
+    raw_tokens = re.findall(r'[\u4e00-\u9fff]+', logline)
+    key_nouns = []
+    for token in raw_tokens:
+        cleaned = "".join(c for c in token if c not in _PARTICLES)
+        if len(cleaned) >= 2:
+            key_nouns.append(cleaned)
+    # Deduplicate while preserving order
+    seen = set()
+    key_nouns = [n for n in key_nouns if n not in seen and not seen.add(n)]
+
+    # --- Generate deterministic but varied content based on logline hash ---
+    h = int(hashlib.md5(logline.encode()).hexdigest(), 16)
+
+    # Character name pools by theme
+    _NAMES_POOL = [
+        ("小明", "小红", "老王"), ("天宇", "晓月", "赵叔"),
+        ("阿杰", "小琳", "刘师傅"), ("子轩", "雨萱", "陈伯"),
+        ("浩然", "思琪", "张大爷"), ("一凡", "诗涵", "周叔"),
+    ]
+    names = _NAMES_POOL[h % len(_NAMES_POOL)]
+
+    # Determine setting from logline or themes
+    setting_text = logline  # default: use the logline itself as setting basis
+
+    # Build character descriptions relevant to the logline
+    def _make_char_desc(role_idx: int) -> str:
+        """Generate a character description relevant to the logline context."""
+        # Role-specific templates that incorporate detected themes
+        if "亲情" in detected_themes:
+            roles = [
+                (names[0], "10岁的小男孩", "好奇心旺盛，活泼好动", "喜欢问各种问题，对世界充满好奇"),
+                (names[1], "35岁的父亲", "耐心温和，知识渊博", "总是用生动的方式给孩子讲解知识"),
+                (names[2], "热心的工作人员", "爽朗健谈，经验丰富", "乐于分享自己的专业知识"),
+            ]
+        elif "校园" in detected_themes:
+            roles = [
+                (names[0], "17岁的高中生", "聪明但内向", "对学习有独特见解"),
+                (names[1], "同班同学", "开朗外向，善于交际", "总能带动身边人的情绪"),
+                (names[2], "班主任", "严格但关心学生", "有着不为人知的过去"),
+            ]
+        elif "历史" in detected_themes or "穿越" in logline:
+            roles = [
+                (names[0], "穿越者", "现代思维，适应力强", "携带现代知识来到古代"),
+                (names[1], "古代当地人", "忠厚正直，武艺高强", "对穿越者的奇异行为感到好奇"),
+                (names[2], "权贵势力代表", "老谋深算，城府极深", "对穿越者的能力虎视眈眈"),
+            ]
+        elif "交通" in detected_themes:
+            roles = [
+                (names[0], "小朋友", "充满好奇心，精力充沛", "对各种机械和车辆着迷"),
+                (names[1], "陪伴的家长", "耐心细致，知识丰富", "享受与孩子一起探索的时光"),
+                (names[2], "资深工作人员", "经验老到，热情开朗", "对自己的工作充满自豪"),
+            ]
+        elif "冒险" in detected_themes or "科幻" in detected_themes:
+            roles = [
+                (names[0], "年轻探索者", "勇敢果断，好奇心强", "天生对未知充满向往"),
+                (names[1], "可靠的伙伴", "冷静理性，技术过硬", "在关键时刻总能提供帮助"),
+                (names[2], "神秘的向导", "深不可测，亦正亦邪", "掌握着关键信息"),
+            ]
+        else:
+            # Generic but still uses logline context
+            roles = [
+                (names[0], "故事主角", "性格鲜明，有成长弧线", f"与「{logline}」的核心主题有深刻联系"),
+                (names[1], "重要配角", "性格互补，提供支持", "在故事中起到催化剂的作用"),
+                (names[2], "关键角色", "立场复杂，动机多元", "推动故事走向转折"),
+            ]
+        return roles[role_idx] if role_idx < len(roles) else roles[-1]
+
+    char_a = _make_char_desc(0)
+    char_b = _make_char_desc(1)
+    char_c = _make_char_desc(2)
+
+    # Build world setting based on key nouns
+    noun_str = "、".join(key_nouns[:5]) if key_nouns else logline
+    world_setting = f"故事以「{logline}」为背景展开。\n{noun_str}构成了这个世界的核心元素，赋予故事独特的氛围和质感。"
+
+    # Build plot that references the actual logline themes
+    plot_seed = key_nouns[0] if key_nouns else "故事"
+    plot_conflict = key_nouns[1] if len(key_nouns) > 1 else "意想不到的发现"
+
     return f"""# 故事大纲：{logline}
 
 ## 世界观设定
-基于「{logline}」的灵感，故事发生在一个独特而引人入胜的世界中。
-这个世界围绕着故事核心概念构建，融合了奇幻与现实的元素。
+{world_setting}
 
 ## 主要角色
-### 主角 A
-- **外貌**：黑色长发，大眼睛，常穿蓝色校服，身高165cm
-- **性格**：善良温柔，内向但坚定
-- **特点**：与「{logline}」的核心设定有着深层联系
+### {char_a[0]}
+- **身份**：{char_a[1]}
+- **性格**：{char_a[2]}
+- **特点**：{char_a[3]}
 
-### 主角 B
-- **外貌**：棕色短发，高挺的鼻子，穿黑色夹克，身高178cm
-- **性格**：外向开朗，正义感强
-- **特点**：在故事中扮演关键的辅助角色
+### {char_b[0]}
+- **身份**：{char_b[1]}
+- **性格**：{char_b[2]}
+- **特点**：{char_b[3]}
 
-### 反派
-- **外貌**：银白色头发，冷峻面容，穿深色长衣
-- **性格**：冷静而野心勃勃
-- **特点**：企图利用故事中的核心力量达成目的
+### {char_c[0]}
+- **身份**：{char_c[1]}
+- **性格**：{char_c[2]}
+- **特点**：{char_c[3]}
 
 ## 故事主线
 
-### 第一集：序章 — 命运的开端
-围绕「{logline}」的故事灵感，主角 A 在一次偶然事件中发现了改变命运的契机。
-主角 B 因缘际会出现，两人初次相遇并被卷入一场更大的漩涡。
+### 第一集：开端
+{char_a[0]}在一个普通的日子里，因为「{logline}」而开启了一段特别的经历。
+{char_b[0]}的出现让这段经历变得更加丰富多彩。
 
-### 第二集：危机 — 暗流涌动
-随着事件发展，反派势力浮出水面，主角团面临第一个重大危机。
-围绕「{logline}」的核心冲突逐渐升级。
+### 第二集：探索
+随着对{plot_seed}的深入了解，{char_a[0]}发现了许多之前不曾注意到的细节。
+{char_c[0]}带来了关于{plot_conflict}的新视角，让故事走向了意想不到的方向。
 
-### 第三集：成长 — 破茧之路
-在逃亡与挑战中，主角们学会了合作与信任，
-并发现了隐藏在故事核心设定背后更深层的秘密。
+### 第三集：转折
+一个围绕{plot_seed}的突发事件打破了平静，{char_a[0]}和{char_b[0]}必须面对新的挑战。
+在这个过程中，他们不仅收获了成长，也加深了彼此之间的羁绊。
 
-### 第四集：决战 — 光明与黑暗
-最终对决来临，主角团面对反派的野心，做出艰难的抉择。
-故事以一个充满希望但留有悬念的方式收束，为续集埋下伏笔。
+### 第四集：升华
+经历了种种波折后，{char_a[0]}对「{logline}」有了全新的理解。
+故事在温暖而充满希望的氛围中收束，留下了令人回味的余韵。
 """
 
 
