@@ -84,7 +84,7 @@ class AssemblerAgent(BaseAgent):
             text = text[:-3].strip()
         return text
 
-    async def run(self, logline: str, style: str = "default", **context: Any) -> str:
+    async def run(self, logline: str, style: str = "default", **context: Any) -> str:  # type: ignore[override]
         """Override: AssemblerAgent does NOT use json_mode since it outputs Markdown."""
         system_prompt = self.build_system_prompt(style)
         user_prompt = self.build_user_prompt(logline, **context)

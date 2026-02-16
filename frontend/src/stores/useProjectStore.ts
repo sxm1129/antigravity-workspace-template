@@ -79,6 +79,33 @@ interface ProjectStore {
   clearCurrentProject: () => void;
 }
 
+/** Shared SSE event handler — used by both generateOutlineStream and continuePipelineFrom */
+function _handlePipelineEvent(
+  event: PipelineEvent,
+  get: () => ProjectStore,
+  set: (partial: Partial<ProjectStore> | ((state: ProjectStore) => Partial<ProjectStore>)) => void,
+) {
+  const state = get();
+  if (event.event_type === "step_start" && event.step) {
+    const steps = state.pipelineSteps.map((s) =>
+      s.key === event.step ? { ...s, status: "running" as const } : s
+    );
+    set({ pipelineSteps: steps, pipelineCurrentStep: event.index ?? -1 });
+  } else if (event.event_type === "step_complete" && event.step && event.result) {
+    const steps = state.pipelineSteps.map((s) =>
+      s.key === event.step ? { ...s, status: "done" as const } : s
+    );
+    set({
+      pipelineSteps: steps,
+      pipelineResults: { ...state.pipelineResults, [event.step]: event.result },
+    });
+  } else if (event.event_type === "pipeline_complete") {
+    set({ pipelineActive: false, pipelineCurrentStep: 4 });
+  } else if (event.event_type === "error") {
+    set({ error: event.error || "Pipeline error", pipelineActive: false });
+  }
+}
+
 export const useProjectStore = create<ProjectStore>((set, get) => ({
   projects: [],
   currentProject: null,
@@ -213,27 +240,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     ];
     set({ loading: true, error: null, pipelineActive: true, pipelineCurrentStep: -1, pipelineSteps: freshSteps, pipelineResults: {} });
     try {
-      await apiGenerateOutlineStream(projectId, (event: PipelineEvent) => {
-        const state = get();
-        if (event.event_type === "step_start" && event.step) {
-          const steps = state.pipelineSteps.map((s) =>
-            s.key === event.step ? { ...s, status: "running" as const } : s
-          );
-          set({ pipelineSteps: steps, pipelineCurrentStep: event.index ?? -1 });
-        } else if (event.event_type === "step_complete" && event.step && event.result) {
-          const steps = state.pipelineSteps.map((s) =>
-            s.key === event.step ? { ...s, status: "done" as const } : s
-          );
-          set({
-            pipelineSteps: steps,
-            pipelineResults: { ...state.pipelineResults, [event.step]: event.result },
-          });
-        } else if (event.event_type === "pipeline_complete") {
-          set({ pipelineActive: false, pipelineCurrentStep: 4 });
-        } else if (event.event_type === "error") {
-          set({ error: event.error || "Pipeline error", pipelineActive: false });
-        }
-      });
+      await apiGenerateOutlineStream(projectId, (event: PipelineEvent) => _handlePipelineEvent(event, get, set));
       // Refresh project from DB
       const project = await projectApi.get(projectId);
       set({ currentProject: project, loading: false });
@@ -255,27 +262,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         state.pipelineResults.intent as Record<string, unknown> | undefined,
         state.pipelineResults.world as Record<string, unknown> | undefined,
         state.pipelineResults.plot as Record<string, unknown> | undefined,
-        (event: PipelineEvent) => {
-          const s = get();
-          if (event.event_type === "step_start" && event.step) {
-            const updated = s.pipelineSteps.map((st) =>
-              st.key === event.step ? { ...st, status: "running" as const } : st
-            );
-            set({ pipelineSteps: updated, pipelineCurrentStep: event.index ?? -1 });
-          } else if (event.event_type === "step_complete" && event.step && event.result) {
-            const updated = s.pipelineSteps.map((st) =>
-              st.key === event.step ? { ...st, status: "done" as const } : st
-            );
-            set({
-              pipelineSteps: updated,
-              pipelineResults: { ...s.pipelineResults, [event.step]: event.result },
-            });
-          } else if (event.event_type === "pipeline_complete") {
-            set({ pipelineActive: false, pipelineCurrentStep: 4 });
-          } else if (event.event_type === "error") {
-            set({ error: event.error || "Pipeline error", pipelineActive: false });
-          }
-        },
+        (event: PipelineEvent) => _handlePipelineEvent(event, get, set),
       );
       const project = await projectApi.get(projectId);
       set({ currentProject: project, loading: false });

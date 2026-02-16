@@ -184,6 +184,23 @@ async def continue_pipeline(
             detail=f"start_from must be 0-3 (got: {req.start_from})",
         )
 
+    # Validate that required prior results are provided when resuming
+    if req.start_from >= 1 and not req.intent_result:
+        raise HTTPException(
+            status_code=400,
+            detail="intent_result is required when start_from >= 1",
+        )
+    if req.start_from >= 2 and not req.world_result:
+        raise HTTPException(
+            status_code=400,
+            detail="world_result is required when start_from >= 2",
+        )
+    if req.start_from >= 3 and not req.plot_result:
+        raise HTTPException(
+            status_code=400,
+            detail="plot_result is required when start_from >= 3",
+        )
+
     logline = project.logline
     style = project.style_preset or "default"
 

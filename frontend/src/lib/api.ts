@@ -278,7 +278,11 @@ async function _consumeSSE(
 
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      // Flush any remaining bytes held by the streaming decoder
+      buffer += decoder.decode();
+      break;
+    }
     buffer += decoder.decode(value, { stream: true });
 
     // Parse SSE frames: "event: ...\ndata: ...\n\n"
@@ -295,6 +299,19 @@ async function _consumeSSE(
         } catch {
           // skip malformed frames
         }
+      }
+    }
+  }
+
+  // Process any remaining complete frames after stream end
+  if (buffer.trim()) {
+    const dataLine = buffer.split("\n").find((l) => l.startsWith("data: "));
+    if (dataLine) {
+      try {
+        const event = JSON.parse(dataLine.slice(6)) as PipelineEvent;
+        onEvent(event);
+      } catch {
+        // skip malformed trailing data
       }
     }
   }
