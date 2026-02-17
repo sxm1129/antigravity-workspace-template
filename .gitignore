@@ -53,3 +53,6 @@ frontend/.env.local
 *.mp3
 .tasks/
 remotion/node_modules/
+
+# Service logs
+.logs/
