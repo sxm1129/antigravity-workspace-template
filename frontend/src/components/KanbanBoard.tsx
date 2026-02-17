@@ -94,7 +94,7 @@ export default function KanbanBoard({ project }: { project: Project }) {
 
     if (project.status === "STORYBOARD") {
       await generateAllImages(project.id);
-    } else if (project.status === "COMPOSING") {
+    } else if (project.status === "PRODUCTION" || project.status === "COMPOSING") {
       await composeFinal(project.id);
     }
   };
@@ -173,6 +173,17 @@ export default function KanbanBoard({ project }: { project: Project }) {
               style={{ flexShrink: 0, marginLeft: 12, background: "linear-gradient(135deg, #10b981, #059669)" }}
             >
               全部审核 ({reviewCount})
+            </button>
+          )}
+          {project.status === "PRODUCTION" && readyCount > 0 && readyCount === scenes.length && (
+            <button
+              className="btn-primary"
+              onClick={handlePhaseAction}
+              disabled={loading}
+              style={{ flexShrink: 0, marginLeft: 12, background: "linear-gradient(135deg, #f59e0b, #d97706)" }}
+            >
+              {loading ? <span className="spinner" /> : null}
+              🎞 合成最终视频
             </button>
           )}
         </div>

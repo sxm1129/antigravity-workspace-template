@@ -211,7 +211,7 @@ function EpisodeKanbanContent({
 
     if (episode.status === "STORYBOARD") {
       await generateAllImages(project.id, episode.id);
-    } else if (episode.status === "COMPOSING") {
+    } else if (episode.status === "PRODUCTION" || episode.status === "COMPOSING") {
       await composeFinal(project.id, episode.id);
     }
     // Refresh episode metadata + scenes after action
@@ -297,6 +297,17 @@ function EpisodeKanbanContent({
                 style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}
               >
                 全部审核 ({reviewCount})
+              </button>
+            )}
+            {episode.status === "PRODUCTION" && readyCount > 0 && readyCount === scenes.length && (
+              <button
+                className="btn-primary"
+                onClick={handlePhaseAction}
+                disabled={loading}
+                style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}
+              >
+                {loading ? <span className="spinner" /> : null}
+                🎞 合成最终视频
               </button>
             )}
             {episode.status === "COMPOSING" && (
