@@ -29,11 +29,11 @@ settings = get_settings()
 _http_client: httpx.AsyncClient | None = None
 
 
-def _get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
+def _get_http_client() -> httpx.AsyncClient:
     """Return a module-level httpx.AsyncClient, creating it on first use."""
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient(timeout=timeout)
+        _http_client = httpx.AsyncClient(timeout=60.0)
     return _http_client
 
 
@@ -157,28 +157,10 @@ async def _generate_video_core(
     if settings.USE_MOCK_API:
         return _mock_video(project_id, scene_id)
 
-    # Fallback chain when no ARK_API_KEY:
-    # DashScope wanx (AI) → Remotion (animation) → FFmpeg (basic)
+    # When no ARK_API_KEY, raise immediately so BaseGenService routes to _fallback()
+    # which implements the full DashScope → Remotion → FFmpeg chain.
     if not settings.ARK_API_KEY:
-        # Try DashScope AI video generation
-        if settings.DASHSCOPE_API_KEY:
-            logger.info("No ARK_API_KEY, trying DashScope wanx I2V for scene=%s", scene_id[:8])
-            try:
-                return await _dashscope_image_to_video(
-                    prompt_motion, project_id, scene_id, local_image_path, local_audio_path,
-                )
-            except Exception as exc:
-                logger.warning("DashScope I2V failed (%s), falling back to Remotion", exc)
-
-        # Remotion cinematic Ken Burns
-        logger.info("Using Remotion image-to-video fallback for scene=%s", scene_id[:8])
-        try:
-            return _remotion_image_to_video(
-                project_id, scene_id, local_image_path, local_audio_path, prompt_motion
-            )
-        except Exception as exc:
-            logger.warning("Remotion fallback failed (%s), using FFmpeg", exc)
-            return _ffmpeg_image_to_video(project_id, scene_id, local_image_path, local_audio_path)
+        raise RuntimeError("ARK_API_KEY not configured — delegating to fallback chain")
 
     # Read local image as Base64 for URL embedding
     image_full_path = os.path.join(settings.MEDIA_VOLUME, local_image_path)
@@ -221,7 +203,7 @@ async def _generate_video_core(
 
     # Step 1: Create task
     client = _get_http_client()
-    response = await client.post(task_url, headers=headers, json=payload)
+    response = await client.post(task_url, headers=headers, json=payload, timeout=120.0)
     response.raise_for_status()
 
     task_data = response.json()
@@ -253,12 +235,12 @@ async def _poll_task(
     Raises RuntimeError on timeout or failure.
     """
     elapsed = 0
-    client = _get_http_client(timeout=30.0)
+    client = _get_http_client()
     while elapsed < timeout_seconds:
         await asyncio.sleep(interval_seconds)
         elapsed += interval_seconds
 
-        response = await client.get(poll_url, headers=headers)
+        response = await client.get(poll_url, headers=headers, timeout=30.0)
         response.raise_for_status()
 
         data = response.json()
@@ -302,8 +284,8 @@ async def _download_video(url: str, project_id: str, scene_id: str) -> str:
     filename = f"{scene_id}.mp4"
     filepath = os.path.join(dir_path, filename)
 
-    client = _get_http_client(timeout=120.0)
-    async with client.stream("GET", url) as response:
+    client = _get_http_client()
+    async with client.stream("GET", url, timeout=120.0) as response:
         response.raise_for_status()
         with open(filepath, "wb") as f:
             async for chunk in response.aiter_bytes(chunk_size=8192):
@@ -361,10 +343,10 @@ async def _dashscope_image_to_video(
         scene_id[:8], settings.DASHSCOPE_VIDEO_MODEL,
     )
 
-    client = _get_http_client(timeout=60.0)
+    client = _get_http_client()
 
     # Step 1: Create async task
-    resp = await client.post(create_url, json=payload, headers=headers)
+    resp = await client.post(create_url, json=payload, headers=headers, timeout=60.0)
     resp.raise_for_status()
     result = resp.json()
 
@@ -386,7 +368,7 @@ async def _dashscope_image_to_video(
         await asyncio.sleep(interval_seconds)
         elapsed += interval_seconds
 
-        poll_resp = await client.get(poll_url, headers=poll_headers)
+        poll_resp = await client.get(poll_url, headers=poll_headers, timeout=30.0)
         poll_resp.raise_for_status()
         poll_data = poll_resp.json()
 

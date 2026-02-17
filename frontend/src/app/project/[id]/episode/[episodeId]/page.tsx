@@ -176,9 +176,19 @@ function EpisodeKanbanContent({
   onScenesUpdate: Dispatch<SetStateAction<Scene[]>>;
   onEpisodeUpdate: (episode: Episode) => void;
 }) {
-  const { generateAllImages, composeFinal, updateSceneLocally, loading } = useProjectStore();
+  const { generateAllImages, composeFinal, loading } = useProjectStore();
   const addToast = useToastStore((s) => s.addToast);
   const { ensureWorker, guardDialog } = useCeleryGuard();
+
+  /** Patch a single scene in the episode's local state (for optimistic UI). */
+  const handleScenePatch = useCallback(
+    (sceneId: string, patch: Partial<Scene>) => {
+      onScenesUpdate((prev) =>
+        prev.map((s) => (s.id === sceneId ? { ...s, ...patch } : s))
+      );
+    },
+    [onScenesUpdate]
+  );
   const [composeProgress, setComposeProgress] = useState<{
     rendered: number; total: number; percent: number;
   } | null>(null);
@@ -603,7 +613,7 @@ function EpisodeKanbanContent({
             gap: 16,
           }}>
             {scenes.map((scene, index) => (
-              <SceneCard key={scene.id} scene={scene} index={index} />
+              <SceneCard key={scene.id} scene={scene} index={index} onLocalPatch={handleScenePatch} />
             ))}
           </div>
         </div>

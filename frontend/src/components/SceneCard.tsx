@@ -13,9 +13,23 @@ const SCENE_STATUS: Record<string, { label: string; cls: string }> = {
   ERROR: { label: "出错", cls: "badge-error" },
 };
 
-export default function SceneCard({ scene, index }: { scene: Scene; index: number }) {
+export default function SceneCard({
+  scene,
+  index,
+  onLocalPatch,
+}: {
+  scene: Scene;
+  index: number;
+  onLocalPatch?: (sceneId: string, patch: Partial<Scene>) => void;
+}) {
   const { approveScene, regenerateImage, regenerateScene, updateSceneLocally } = useProjectStore();
   const status = SCENE_STATUS[scene.status] || { label: scene.status, cls: "badge-ideation" };
+
+  /** Patch both zustand store and optional local state (episode page). */
+  const patchScene = (sceneId: string, patch: Partial<Scene>) => {
+    updateSceneLocally(sceneId, patch);
+    onLocalPatch?.(sceneId, patch);
+  };
 
   const imgSrc = mediaUrl(scene.local_image_path);
   const videoSrc = mediaUrl(scene.local_video_path);
@@ -136,6 +150,7 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
               onClick={(e) => {
                 e.stopPropagation();
                 regenerateImage(scene.id);
+                patchScene(scene.id, { status: "GENERATING" });
               }}
               style={{ padding: "8px 12px", fontSize: 12 }}
             >
@@ -213,7 +228,7 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
                 e.stopPropagation();
                 await assetApi.resetScenes([scene.id]);
                 // Optimistically update locally
-                updateSceneLocally(scene.id, { status: "PENDING", error_message: null });
+                patchScene(scene.id, { status: "PENDING", error_message: null });
               }}
               style={{
                 width: "100%", justifyContent: "center",

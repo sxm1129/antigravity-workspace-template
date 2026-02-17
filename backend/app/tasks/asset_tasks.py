@@ -105,7 +105,7 @@ def generate_scene_video(
     redis_client = redis.Redis(connection_pool=_get_sync_pool())
 
     # Anti-duplicate: SETNX mutex
-    if not redis_client.set(lock_key, "1", ex=600, nx=True):
+    if not redis_client.set(lock_key, "1", ex=900, nx=True):
         logger.warning("Duplicate video request blocked for scene %s", scene_id)
         return {"scene_id": scene_id, "status": "duplicate_blocked"}
 
@@ -158,9 +158,7 @@ async def _update_scene_fields(scene_id: str, **kwargs) -> None:
         await session.commit()
 
 
-async def _update_scene_path(scene_id: str, field: str, value: str) -> None:
-    """Update a single field on a scene record."""
-    await _update_scene_fields(scene_id, **{field: value})
+
 
 
 async def _update_scene_status(scene_id: str, status: str) -> None:

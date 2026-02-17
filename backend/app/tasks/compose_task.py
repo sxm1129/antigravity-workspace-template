@@ -66,7 +66,7 @@ def compose_project_video(project_id: str, episode_id: str | None = None):
             run_async(_update_episode_status(episode_id, "COMPLETED", result.output_path))
 
         # Broadcast project completion via WebSocket
-        run_async(_broadcast_project_update(project_id, ProjectStatus.COMPLETED.value))
+        _broadcast_project_update(project_id, ProjectStatus.COMPLETED.value)
 
         logger.info(
             "Project %s video composed via %s: %s",
@@ -81,7 +81,7 @@ def compose_project_video(project_id: str, episode_id: str | None = None):
             run_async(_update_project_status(project_id, ProjectStatus.PRODUCTION.value))
             if episode_id:
                 run_async(_update_episode_status(episode_id, "PRODUCTION"))
-            run_async(_broadcast_project_update(project_id, ProjectStatus.PRODUCTION.value))
+            _broadcast_project_update(project_id, ProjectStatus.PRODUCTION.value)
             logger.info("Project %s rolled back to PRODUCTION after compose failure", project_id)
         except Exception as rollback_err:
             logger.error("Failed to rollback project %s status: %s", project_id, rollback_err)
@@ -160,8 +160,8 @@ async def _update_project_status(project_id: str, status: str, final_video_path:
         await session.commit()
 
 
-async def _broadcast_project_update(project_id: str, status: str) -> None:
-    """Publish project status update via Redis Pub/Sub (sync-safe wrapper)."""
+def _broadcast_project_update(project_id: str, status: str) -> None:
+    """Publish project status update via Redis Pub/Sub (sync)."""
     try:
         from app.services.pubsub import publish_project_update
         publish_project_update(project_id, status)

@@ -440,12 +440,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   regenerateImage: async (sceneId) => {
     try {
       await assetApi.regenerateImage(sceneId);
-      // Update scene status locally to show spinner
-      set((s) => ({
-        scenes: s.scenes.map((sc) =>
-          sc.id === sceneId ? { ...sc, status: "GENERATING" } : sc
-        ),
-      }));
+      // Optimistically update scene status
+      get().updateSceneLocally(sceneId, { status: "GENERATING" });
     } catch (e: unknown) {
       set({ error: (e as Error).message });
     }
