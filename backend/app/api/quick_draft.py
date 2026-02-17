@@ -18,6 +18,7 @@ class QuickDraftRequest(BaseModel):
 
 
 @router.post("/")
+@router.post("", include_in_schema=False)
 async def start_quick_draft(req: QuickDraftRequest, db: AsyncSession = Depends(get_db)):
     """Create a project and immediately start the full AI pipeline."""
     import uuid
