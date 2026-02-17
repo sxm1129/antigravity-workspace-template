@@ -8,6 +8,7 @@ and saves to local media_volume.
 import base64
 import logging
 import os
+import re
 import uuid
 
 import httpx
@@ -17,8 +18,27 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# Regex to strip speaker prefix like "齐齐:" "爸爸：" "Narrator:" etc.
+# Matches: optional whitespace, name (Chinese chars / letters / digits),
+# followed by colon (full-width or half-width), then optional whitespace.
+_SPEAKER_PREFIX_RE = re.compile(
+    r"^\s*[\u4e00-\u9fff\w]{1,10}\s*[：:]\s*"
+)
+
 # Module-level httpx client for connection reuse (lazy init)
 _http_client: httpx.AsyncClient | None = None
+
+
+def strip_speaker_prefix(text: str) -> str:
+    """Strip character name prefix from dialogue text for TTS.
+
+    Examples:
+        '齐齐: 你好啊' → '你好啊'
+        '爸爸：我们去海边吧' → '我们去海边吧'
+        'Narrator: Once upon a time' → 'Once upon a time'
+        '普通句子' → '普通句子'  (no change)
+    """
+    return _SPEAKER_PREFIX_RE.sub("", text).strip()
 
 
 def _get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
@@ -49,6 +69,13 @@ async def synthesize_speech(
     if settings.USE_MOCK_API:
         rel_path = await _mock_tts(project_id, scene_id)
         return rel_path, 2.0
+
+    # Strip character name prefix (e.g., "齐齐: " → "")
+    text = strip_speaker_prefix(text)
+    if not text:
+        logger.warning("Empty text after stripping speaker prefix for scene %s", scene_id)
+        rel_path = await _mock_tts(project_id, scene_id)
+        return rel_path, 0.5
 
     voice = voice or settings.INDEX_TTS_VOICE
     api_url = f"{settings.INDEX_TTS_URL}/api/v1/tts"

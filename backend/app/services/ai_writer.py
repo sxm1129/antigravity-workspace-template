@@ -42,7 +42,7 @@ PARSE_SCENES_SYSTEM_PROMPT = """你是一个专业的漫剧分镜拆解助手。
   "scenes": [
     {
       "sequence_order": 1,
-      "dialogue_text": "角色的台词（如果有）",
+      "dialogue_text": "角色的台词内容（仅台词本身，不要包含角色名称前缀如"齐齐："）",
       "prompt_visual": "详细的画面描述，用于 AI 生图，包含构图、光影、色调等",
       "prompt_motion": "动作描述，用于 AI 生视频，包含角色动作、镜头运动等",
       "sfx_text": "画面上需要渲染的文字效果（如音效文字、标题文字）"
@@ -54,7 +54,8 @@ PARSE_SCENES_SYSTEM_PROMPT = """你是一个专业的漫剧分镜拆解助手。
 1. 每个镜头应该是一个独立的、可视化的画面
 2. prompt_visual 要尽可能详细，包含人物外貌、表情、服装、背景等
 3. prompt_motion 描述动作和镜头运动
-4. 严格输出合法 JSON"""
+4. dialogue_text 只写台词内容，绝不能包含 "角色名:" 或 "角色名：" 前缀，因为会直接用于语音合成
+5. 严格输出合法 JSON"""
 
 EXTRACT_EPISODES_SYSTEM_PROMPT = """你是一个专业的漫剧编剧助手。请从以下世界观大纲中提取所有剧集信息。
 

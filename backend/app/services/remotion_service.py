@@ -308,7 +308,8 @@ class RemotionComposeService(BaseComposeService):
                 scene_dict["audioSrc"] = _resolve_path(s.audio_path)
 
             if s.dialogue_text:
-                scene_dict["dialogue"] = s.dialogue_text
+                from app.services.tts_service import strip_speaker_prefix
+                scene_dict["dialogue"] = strip_speaker_prefix(s.dialogue_text)
                 scene_dict["bubbleStyle"] = s.bubble_style or "normal"
                 if s.bubble_position:
                     scene_dict["bubblePosition"] = s.bubble_position
