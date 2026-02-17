@@ -321,6 +321,40 @@ function EpisodeKanbanContent({
                 🎞 合成最终视频
               </button>
             )}
+            {episode.status === "PRODUCTION" && readyCount < scenes.length && readyCount >= 0 && reviewCount === 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                  视频就绪: {readyCount}/{scenes.length}
+                </span>
+                {(() => {
+                  const stuckIds = scenes
+                    .filter((s) =>
+                      ["APPROVED", "VIDEO_GEN"].includes(s.status) && !s.local_video_path
+                    )
+                    .map((s) => s.id);
+                  return stuckIds.length > 0 ? (
+                    <button
+                      className="btn-secondary"
+                      onClick={async () => {
+                        if (!(await ensureWorker())) return;
+                        try {
+                          await assetApi.retryVideoGen(stuckIds);
+                          addToast("success", `已重新触发 ${stuckIds.length} 个场景的视频生成`);
+                          const updatedScenes = await episodeApi.listScenes(episode.id);
+                          onScenesUpdate(updatedScenes);
+                        } catch (err: unknown) {
+                          addToast("error", err instanceof Error ? err.message : "重试失败");
+                        }
+                      }}
+                      disabled={loading}
+                      style={{ fontSize: 12, padding: "6px 14px" }}
+                    >
+                      🔄 重新生成视频 ({stuckIds.length})
+                    </button>
+                  ) : null;
+                })()}
+              </div>
+            )}
             {episode.status === "COMPOSING" && (
               <div style={{
                 display: "flex", alignItems: "center", gap: 12,
@@ -341,7 +375,6 @@ function EpisodeKanbanContent({
                       position: "relative",
                     }}
                   >
-                    {/* Shimmer animation */}
                     <div style={{
                       position: "absolute", inset: 0, borderRadius: 12,
                       background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)",

@@ -355,3 +355,54 @@ async def batch_approve(req: BatchApproveRequest, db: AsyncSession = Depends(get
 
     return {"approved": len(approved_dispatch), "video_tasks": tasks}
 
+
+class RetryVideoGenRequest(BaseModel):
+    scene_ids: list[str]
+
+
+@router.post("/retry-video-gen")
+async def retry_video_gen(req: RetryVideoGenRequest, db: AsyncSession = Depends(get_db)):
+    """Re-trigger video generation for stuck scenes (APPROVED or VIDEO_GEN without video).
+
+    Resets status to APPROVED and dispatches generate_scene_video tasks.
+    """
+    result = await db.execute(
+        select(Scene).where(Scene.id.in_(req.scene_ids))
+    )
+    all_scenes = {s.id: s for s in result.scalars().all()}
+
+    dispatch: list[dict] = []
+    for scene_id in req.scene_ids:
+        scene = all_scenes.get(scene_id)
+        if not scene:
+            continue
+        if scene.status not in (SceneStatus.APPROVED.value, SceneStatus.VIDEO_GEN.value):
+            continue
+        if not scene.local_image_path:
+            continue
+
+        scene.status = SceneStatus.APPROVED.value  # Reset to APPROVED for re-dispatch
+        dispatch.append({
+            "scene_id": scene.id,
+            "project_id": scene.project_id,
+            "prompt_motion": scene.prompt_motion or "",
+            "local_image_path": scene.local_image_path or "",
+            "local_audio_path": scene.local_audio_path,
+        })
+
+    await db.flush()
+
+    from app.tasks.asset_tasks import generate_scene_video
+
+    tasks = []
+    for sd in dispatch:
+        task = generate_scene_video.delay(
+            sd["scene_id"],
+            sd["project_id"],
+            sd["prompt_motion"],
+            sd["local_image_path"],
+            sd["local_audio_path"],
+        )
+        tasks.append({"scene_id": sd["scene_id"], "task_id": task.id})
+
+    return {"retried": len(dispatch), "video_tasks": tasks}

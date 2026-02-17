@@ -375,6 +375,12 @@ export const assetApi = {
       method: "POST",
       body: JSON.stringify({ project_id: projectId, episode_id: episodeId || null }),
     }),
+
+  retryVideoGen: (sceneIds: string[]) =>
+    fetcher<{ retried: number }>("/api/assets/retry-video-gen", {
+      method: "POST",
+      body: JSON.stringify({ scene_ids: sceneIds }),
+    }),
 };
 
 // ──────── Quick Draft API ────────
