@@ -393,6 +393,38 @@ function EpisodeKanbanContent({
                 <style>{`@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }`}</style>
               </div>
             )}
+            {episode.status === "COMPLETED" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {episode.final_video_path && (
+                  <a
+                    href={`/media/${episode.final_video_path}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary"
+                    style={{
+                      textDecoration: "none", fontSize: 13,
+                      background: "linear-gradient(135deg, #10b981, #059669)",
+                    }}
+                  >
+                    🎬 播放最终视频
+                  </a>
+                )}
+                <button
+                  className="btn-secondary"
+                  onClick={async () => {
+                    if (!(await ensureWorker())) return;
+                    await composeFinal(project.id, episode.id);
+                    const updatedEp = await episodeApi.get(episode.id);
+                    onEpisodeUpdate(updatedEp);
+                    addToast("success", "已重新触发合成");
+                  }}
+                  disabled={loading}
+                  style={{ fontSize: 12, padding: "6px 14px" }}
+                >
+                  🔄 重新合成
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
