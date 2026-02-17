@@ -11,7 +11,7 @@ from app.tasks import run_async
 logger = logging.getLogger(__name__)
 
 
-@shared_task
+@shared_task(time_limit=600, soft_time_limit=480)
 def compose_project_video(project_id: str, episode_id: str | None = None):
     """Compose READY scene videos into a final output.
 

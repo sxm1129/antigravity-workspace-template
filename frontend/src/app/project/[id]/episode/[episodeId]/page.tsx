@@ -390,6 +390,24 @@ function EpisodeKanbanContent({
                     ? `${composeProgress.percent}% (${composeProgress.rendered}/${composeProgress.total})`
                     : "准备中..."}
                 </span>
+                <button
+                  className="btn-secondary"
+                  onClick={async () => {
+                    try {
+                      const updated = await episodeApi.resetStatus(episode.id);
+                      onEpisodeUpdate(updated);
+                      addToast("success", "已重置为 PRODUCTION 状态");
+                    } catch (err: unknown) {
+                      addToast("error", err instanceof Error ? err.message : "重置失败");
+                    }
+                  }}
+                  style={{
+                    fontSize: 11, padding: "4px 10px",
+                    color: "#ef4444", borderColor: "#ef4444",
+                  }}
+                >
+                  ⏹ 重置
+                </button>
                 <style>{`@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }`}</style>
               </div>
             )}

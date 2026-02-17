@@ -341,6 +341,11 @@ export const episodeApi = {
 
   listScenes: (episodeId: string) =>
     fetcher<Scene[]>(`/api/episodes/${episodeId}/scenes`),
+
+  resetStatus: (episodeId: string) =>
+    fetcher<Episode>(`/api/episodes/${episodeId}/reset-status`, {
+      method: "POST",
+    }),
 };
 
 // ──────── Asset API ────────

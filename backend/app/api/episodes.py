@@ -145,3 +145,33 @@ async def list_episode_scenes(episode_id: str, db: AsyncSession = Depends(get_db
         .order_by(Scene.sequence_order)
     )
     return result.scalars().all()
+
+
+@router.post("/episodes/{episode_id}/reset-status")
+async def reset_episode_status(episode_id: str, db: AsyncSession = Depends(get_db)):
+    """Reset a stuck episode (COMPOSING) back to PRODUCTION so it can be re-composed.
+
+    Also works for COMPLETED episodes that need re-composition.
+    """
+    episode = await db.get(Episode, episode_id)
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    allowed_from = {EpisodeStatus.COMPOSING.value, EpisodeStatus.COMPLETED.value}
+    if episode.status not in allowed_from:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot reset from status '{episode.status}'. Only COMPOSING/COMPLETED can be reset."
+        )
+
+    episode.status = EpisodeStatus.PRODUCTION.value
+    await db.flush()
+
+    # Compute scenes_count for response
+    count_result = await db.execute(
+        select(sa_func.count(Scene.id)).where(Scene.episode_id == episode_id)
+    )
+    scenes_count = count_result.scalar() or 0
+
+    logger.info("Episode %s reset from %s to PRODUCTION", episode_id, episode.status)
+    return _episode_to_read(episode, scenes_count)
