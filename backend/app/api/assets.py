@@ -84,17 +84,7 @@ async def generate_all_scene_images(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if project.status not in (
-        ProjectStatus.STORYBOARD.value,
-        ProjectStatus.PRODUCTION.value,
-        ProjectStatus.IN_PRODUCTION.value,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Project must be in STORYBOARD or IN_PRODUCTION status (current: {project.status})",
-        )
-
-    # Validate episode if provided
+    # Validate episode first if provided — use episode-level status check
     episode = None
     if req.episode_id:
         episode = await db.get(Episode, req.episode_id)
@@ -102,6 +92,26 @@ async def generate_all_scene_images(
             raise HTTPException(status_code=404, detail="Episode not found")
         if episode.project_id != req.project_id:
             raise HTTPException(status_code=400, detail="Episode does not belong to this project")
+        # Episode-level status check: must be STORYBOARD or PRODUCTION
+        if episode.status not in (
+            EpisodeStatus.STORYBOARD.value,
+            EpisodeStatus.PRODUCTION.value,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Episode must be in STORYBOARD or PRODUCTION status (current: {episode.status})",
+            )
+    else:
+        # Project-level status check (legacy non-episode workflow)
+        if project.status not in (
+            ProjectStatus.STORYBOARD.value,
+            ProjectStatus.PRODUCTION.value,
+            ProjectStatus.IN_PRODUCTION.value,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Project must be in STORYBOARD or IN_PRODUCTION status (current: {project.status})",
+            )
 
     # Get pending + error scenes (filtered by episode if provided)
     scene_query = select(Scene).where(
