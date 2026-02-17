@@ -353,14 +353,20 @@ export const episodeApi = {
 // ──────── Asset API ────────
 
 export const assetApi = {
-  generateAllImages: (projectId: string, episodeId?: string) =>
+  generateAllImages: (projectId: string, episodeId?: string, force?: boolean) =>
     fetcher<TaskDispatchResult>("/api/assets/generate-all-images", {
       method: "POST",
-      body: JSON.stringify({ project_id: projectId, episode_id: episodeId || null }),
+      body: JSON.stringify({ project_id: projectId, episode_id: episodeId || null, force: force || false }),
     }),
 
   regenerateImage: (sceneId: string) =>
     fetcher<TaskDispatchResult>("/api/assets/regenerate-image", {
+      method: "POST",
+      body: JSON.stringify({ scene_id: sceneId }),
+    }),
+
+  regenerateScene: (sceneId: string) =>
+    fetcher<TaskDispatchResult>("/api/assets/regenerate-scene", {
       method: "POST",
       body: JSON.stringify({ scene_id: sceneId }),
     }),

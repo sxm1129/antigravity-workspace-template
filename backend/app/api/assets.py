@@ -21,6 +21,7 @@ router = APIRouter()
 class GenerateAssetsRequest(BaseModel):
     project_id: str
     episode_id: str | None = None
+    force: bool = False  # When True, regenerate ALL scenes (not just PENDING/ERROR)
 
 
 class GenerateSceneImageRequest(BaseModel):
@@ -113,18 +114,26 @@ async def generate_all_scene_images(
                 detail=f"Project must be in STORYBOARD or IN_PRODUCTION status (current: {project.status})",
             )
 
-    # Get pending + error scenes (filtered by episode if provided)
-    scene_query = select(Scene).where(
-        Scene.project_id == req.project_id,
-        Scene.status.in_([SceneStatus.PENDING.value, SceneStatus.ERROR.value]),
-    )
+    # Get scenes to generate (filtered by episode if provided)
+    if req.force:
+        # Force mode: include ALL scenes regardless of status
+        scene_query = select(Scene).where(Scene.project_id == req.project_id)
+    else:
+        # Normal mode: only PENDING + ERROR scenes
+        scene_query = select(Scene).where(
+            Scene.project_id == req.project_id,
+            Scene.status.in_([SceneStatus.PENDING.value, SceneStatus.ERROR.value]),
+        )
     if req.episode_id:
         scene_query = scene_query.where(Scene.episode_id == req.episode_id)
     result = await db.execute(scene_query.order_by(Scene.sequence_order))
     scenes = result.scalars().all()
 
     if not scenes:
-        raise HTTPException(status_code=400, detail="No pending/error scenes to generate")
+        raise HTTPException(
+            status_code=400,
+            detail="No scenes to generate" if req.force else "No pending/error scenes to generate",
+        )
 
     # Get character identity refs for this project
     char_result = await db.execute(
@@ -236,6 +245,56 @@ async def regenerate_scene_image(
     )
 
     return {"scene_id": scene.id, "task_id": task.id}
+
+
+@router.post("/regenerate-scene")
+async def regenerate_scene_assets(
+    req: GenerateSceneImageRequest, db: AsyncSession = Depends(get_db)
+):
+    """Regenerate ALL assets (image + audio) for a single scene."""
+    scene = await db.get(Scene, req.scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    # Get identity refs
+    char_result = await db.execute(
+        select(Character).where(Character.project_id == scene.project_id)
+    )
+    characters = char_result.scalars().all()
+    identity_refs = []
+    for char in characters:
+        if char.nano_identity_refs:
+            identity_refs.extend(char.nano_identity_refs)
+
+    # Get project voice setting
+    project = await db.get(Project, scene.project_id)
+    tts_voice = getattr(project, "tts_voice", None) if project else None
+
+    scene.status = SceneStatus.GENERATING.value
+    scene.error_message = None
+    await db.flush()
+
+    from app.tasks.asset_tasks import generate_scene_audio, generate_scene_image
+
+    task_ids = []
+
+    # TTS task
+    if scene.dialogue_text:
+        audio_task = generate_scene_audio.delay(
+            scene.id, scene.project_id, scene.dialogue_text, tts_voice
+        )
+        task_ids.append({"task": "audio", "task_id": audio_task.id})
+
+    # Image task
+    if scene.prompt_visual:
+        img_task = generate_scene_image.delay(
+            scene.id, scene.project_id, scene.prompt_visual,
+            scene.sfx_text,
+            identity_refs if identity_refs else None,
+        )
+        task_ids.append({"task": "image", "task_id": img_task.id})
+
+    return {"scene_id": scene.id, "tasks": task_ids}
 
 
 @router.post("/approve-scene")

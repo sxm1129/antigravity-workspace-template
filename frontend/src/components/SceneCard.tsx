@@ -14,7 +14,7 @@ const SCENE_STATUS: Record<string, { label: string; cls: string }> = {
 };
 
 export default function SceneCard({ scene, index }: { scene: Scene; index: number }) {
-  const { approveScene, regenerateImage, updateSceneLocally } = useProjectStore();
+  const { approveScene, regenerateImage, regenerateScene, updateSceneLocally } = useProjectStore();
   const status = SCENE_STATUS[scene.status] || { label: scene.status, cls: "badge-ideation" };
 
   const imgSrc = mediaUrl(scene.local_image_path);
@@ -151,11 +151,27 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
               className="btn-primary"
               onClick={(e) => {
                 e.stopPropagation();
-                regenerateImage(scene.id);
+                regenerateScene(scene.id);
               }}
               style={{ flex: 1, justifyContent: "center", padding: "8px 12px", fontSize: 12 }}
             >
               🎨 生成素材
+            </button>
+          </div>
+        )}
+
+        {/* Regenerate button for READY / APPROVED scenes */}
+        {(scene.status === "READY" || scene.status === "APPROVED") && (
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button
+              className="btn-secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                regenerateScene(scene.id);
+              }}
+              style={{ flex: 1, justifyContent: "center", padding: "8px 12px", fontSize: 12 }}
+            >
+              ↻ 重新生成
             </button>
           </div>
         )}

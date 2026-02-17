@@ -63,9 +63,10 @@ interface ProjectStore {
   parseScenes: (projectId: string) => Promise<void>;
 
   // ── Assets ──
-  generateAllImages: (projectId: string, episodeId?: string) => Promise<void>;
+  generateAllImages: (projectId: string, episodeId?: string, force?: boolean) => Promise<void>;
   approveScene: (sceneId: string) => Promise<void>;
   regenerateImage: (sceneId: string) => Promise<void>;
+  regenerateScene: (sceneId: string) => Promise<void>;
   composeFinal: (projectId: string, episodeId?: string) => Promise<void>;
 
   // ── Content ──
@@ -366,10 +367,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   // ── Assets ──
 
-  generateAllImages: async (projectId, episodeId) => {
+  generateAllImages: async (projectId, episodeId, force) => {
     set({ loading: true, error: null });
     try {
-      await assetApi.generateAllImages(projectId, episodeId);
+      await assetApi.generateAllImages(projectId, episodeId, force);
       const project = await projectApi.get(projectId);
       set({ currentProject: project, loading: false });
     } catch (e: unknown) {
@@ -402,6 +403,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       // via project_update events — no polling needed.
     } catch (e: unknown) {
       set({ error: (e as Error).message, loading: false });
+    }
+  },
+
+  regenerateScene: async (sceneId) => {
+    try {
+      await assetApi.regenerateScene(sceneId);
+      // Optimistically update scene status
+      get().updateSceneLocally(sceneId, { status: "GENERATING", error_message: null });
+    } catch (e: unknown) {
+      set({ error: (e as Error).message });
     }
   },
 

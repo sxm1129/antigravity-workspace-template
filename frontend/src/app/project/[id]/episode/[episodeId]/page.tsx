@@ -378,6 +378,27 @@ function EpisodeKanbanContent({
                 全部审核 ({reviewCount})
               </button>
             )}
+            {episode.status === "PRODUCTION" && (
+              <button
+                className="btn-secondary"
+                onClick={async () => {
+                  if (!(await ensureWorker())) return;
+                  if (!confirm("确定要重新生成本集全部素材吗？已有素材将被覆盖。")) return;
+                  await generateAllImages(project.id, episode.id, true);
+                  addToast("success", "已触发全部素材重新生成");
+                  const [updatedEp, updatedScenes] = await Promise.all([
+                    episodeApi.get(episode.id),
+                    episodeApi.listScenes(episode.id),
+                  ]);
+                  onEpisodeUpdate(updatedEp);
+                  onScenesUpdate(updatedScenes);
+                }}
+                disabled={loading}
+                style={{ fontSize: 13, padding: "8px 16px" }}
+              >
+                ↻ 重新生成全部
+              </button>
+            )}
             {episode.status === "PRODUCTION" && readyCount > 0 && readyCount === scenes.length && (
               <button
                 className="btn-primary"
