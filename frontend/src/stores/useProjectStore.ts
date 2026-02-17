@@ -63,10 +63,10 @@ interface ProjectStore {
   parseScenes: (projectId: string) => Promise<void>;
 
   // ── Assets ──
-  generateAllImages: (projectId: string) => Promise<void>;
+  generateAllImages: (projectId: string, episodeId?: string) => Promise<void>;
   approveScene: (sceneId: string) => Promise<void>;
   regenerateImage: (sceneId: string) => Promise<void>;
-  composeFinal: (projectId: string) => Promise<void>;
+  composeFinal: (projectId: string, episodeId?: string) => Promise<void>;
 
   // ── Content ──
   saveProjectContent: (projectId: string, data: { world_outline?: string; full_script?: string }) => Promise<void>;
@@ -366,10 +366,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   // ── Assets ──
 
-  generateAllImages: async (projectId) => {
+  generateAllImages: async (projectId, episodeId) => {
     set({ loading: true, error: null });
     try {
-      await assetApi.generateAllImages(projectId);
+      await assetApi.generateAllImages(projectId, episodeId);
       const project = await projectApi.get(projectId);
       set({ currentProject: project, loading: false });
     } catch (e: unknown) {
@@ -391,10 +391,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
   },
 
-  composeFinal: async (projectId) => {
+  composeFinal: async (projectId, episodeId) => {
     set({ loading: true, error: null });
     try {
-      await assetApi.composeFinal(projectId);
+      await assetApi.composeFinal(projectId, episodeId);
       // Poll until project status becomes COMPLETED (or timeout)
       const maxAttempts = 150; // 5 minutes (2s intervals)
       for (let i = 0; i < maxAttempts; i++) {

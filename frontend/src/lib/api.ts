@@ -346,10 +346,10 @@ export const episodeApi = {
 // ──────── Asset API ────────
 
 export const assetApi = {
-  generateAllImages: (projectId: string) =>
+  generateAllImages: (projectId: string, episodeId?: string) =>
     fetcher<TaskDispatchResult>("/api/assets/generate-all-images", {
       method: "POST",
-      body: JSON.stringify({ project_id: projectId }),
+      body: JSON.stringify({ project_id: projectId, episode_id: episodeId || null }),
     }),
 
   regenerateImage: (sceneId: string) =>
@@ -370,10 +370,10 @@ export const assetApi = {
       body: JSON.stringify({ scene_ids: sceneIds }),
     }),
 
-  composeFinal: (projectId: string) =>
+  composeFinal: (projectId: string, episodeId?: string) =>
     fetcher<TaskDispatchResult>("/api/assets/compose-final", {
       method: "POST",
-      body: JSON.stringify({ project_id: projectId }),
+      body: JSON.stringify({ project_id: projectId, episode_id: episodeId || null }),
     }),
 };
 

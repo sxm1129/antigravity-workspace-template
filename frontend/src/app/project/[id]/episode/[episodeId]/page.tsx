@@ -4,8 +4,9 @@ import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useToastStore } from "@/stores/useToastStore";
-import { episodeApi, type Episode, type Scene } from "@/lib/api";
-import KanbanBoard from "@/components/KanbanBoard";
+import { episodeApi, assetApi, type Episode, type Scene } from "@/lib/api";
+import { connectProjectWS, type WSMessage } from "@/lib/ws";
+import SceneCard from "@/components/SceneCard";
 
 type PageParams = { id: string; episodeId: string };
 
@@ -130,13 +131,14 @@ export default function EpisodeKanbanPage(props: { params: Promise<PageParams> }
         </div>
       )}
 
-      {/* Content: Reuse KanbanBoard with filtered scenes */}
+      {/* Content */}
       <div style={{ flex: 1, overflow: "auto" }}>
         <EpisodeKanbanContent
           project={currentProject}
           episode={episode}
           scenes={episodeScenes}
           onScenesUpdate={(scenes) => setEpisodeScenes(scenes)}
+          onEpisodeUpdate={(ep) => setEpisode(ep)}
         />
       </div>
     </div>
@@ -165,26 +167,54 @@ const EPISODE_PHASE_ACTIONS: Record<string, { label: string; description: string
 };
 
 function EpisodeKanbanContent({
-  project, episode, scenes, onScenesUpdate,
+  project, episode, scenes, onScenesUpdate, onEpisodeUpdate,
 }: {
   project: { id: string; title: string; status: string };
   episode: Episode;
   scenes: Scene[];
   onScenesUpdate: (scenes: Scene[]) => void;
+  onEpisodeUpdate: (episode: Episode) => void;
 }) {
-  const { generateAllImages, composeFinal, loading } = useProjectStore();
+  const { generateAllImages, composeFinal, updateSceneLocally, loading } = useProjectStore();
   const addToast = useToastStore((s) => s.addToast);
 
   const phase = EPISODE_PHASE_ACTIONS[episode.status];
 
+  // ── WebSocket for real-time scene updates ──
+  useEffect(() => {
+    const conn = connectProjectWS(project.id, (msg: WSMessage) => {
+      if (msg.type === "scene_update" && msg.scene_id && msg.status) {
+        // Update the scene locally in our episode-scoped list
+        onScenesUpdate(
+          scenes.map((s) => s.id === msg.scene_id ? { ...s, status: msg.status! } : s)
+        );
+        updateSceneLocally(msg.scene_id, { status: msg.status });
+        // Re-fetch scenes on significant status changes
+        if (["REVIEW", "READY", "audio_done"].includes(msg.status)) {
+          episodeApi.listScenes(episode.id).then(onScenesUpdate);
+          episodeApi.get(episode.id).then(onEpisodeUpdate);
+        }
+      }
+      if (msg.type === "project_update") {
+        episodeApi.get(episode.id).then(onEpisodeUpdate);
+        episodeApi.listScenes(episode.id).then(onScenesUpdate);
+      }
+    });
+    return () => conn.close();
+  }, [project.id, episode.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handlePhaseAction = async () => {
     if (episode.status === "STORYBOARD") {
-      await generateAllImages(project.id);
+      await generateAllImages(project.id, episode.id);
     } else if (episode.status === "COMPOSING") {
-      await composeFinal(project.id);
+      await composeFinal(project.id, episode.id);
     }
-    // Refresh episode scenes
-    const updatedScenes = await episodeApi.listScenes(episode.id);
+    // Refresh episode metadata + scenes after action
+    const [updatedEp, updatedScenes] = await Promise.all([
+      episodeApi.get(episode.id),
+      episodeApi.listScenes(episode.id),
+    ]);
+    onEpisodeUpdate(updatedEp);
     onScenesUpdate(updatedScenes);
   };
 
@@ -203,10 +233,13 @@ function EpisodeKanbanContent({
       return;
     }
     try {
-      const { batchApprove } = await import("@/lib/api").then((m) => m.assetApi);
-      const result = await batchApprove(reviewSceneIds);
+      const result = await assetApi.batchApprove(reviewSceneIds);
       addToast("success", `已批量审核 ${result.approved} 个场景`);
-      const updatedScenes = await episodeApi.listScenes(episode.id);
+      const [updatedEp, updatedScenes] = await Promise.all([
+        episodeApi.get(episode.id),
+        episodeApi.listScenes(episode.id),
+      ]);
+      onEpisodeUpdate(updatedEp);
       onScenesUpdate(updatedScenes);
     } catch (err: unknown) {
       addToast("error", err instanceof Error ? err.message : "批量审核失败");
@@ -314,44 +347,11 @@ function EpisodeKanbanContent({
           </div>
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
             gap: 16,
           }}>
-            {scenes.map((scene) => (
-              <div key={scene.id} className="glass-panel" style={{ padding: 16 }}>
-                <div style={{
-                  display: "flex", justifyContent: "space-between",
-                  alignItems: "center", marginBottom: 8,
-                }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-                    镜头 {scene.sequence_order}
-                  </span>
-                  <span style={{
-                    fontSize: 11, padding: "2px 8px", borderRadius: 8,
-                    background: scene.status === "READY" ? "rgba(46,160,67,0.15)" : "rgba(99,102,241,0.15)",
-                    color: scene.status === "READY" ? "var(--accent-success)" : "var(--accent-primary)",
-                  }}>
-                    {scene.status}
-                  </span>
-                </div>
-                {scene.dialogue_text && (
-                  <p style={{
-                    fontSize: 12, color: "var(--text-secondary)",
-                    lineHeight: 1.5, marginBottom: 8,
-                    display: "-webkit-box", WebkitLineClamp: 3,
-                    WebkitBoxOrient: "vertical", overflow: "hidden",
-                  }}>
-                    &quot;{scene.dialogue_text}&quot;
-                  </p>
-                )}
-                {scene.local_image_path && (
-                  <img
-                    src={`/media/${scene.local_image_path}`}
-                    alt={`Scene ${scene.sequence_order}`}
-                    style={{ width: "100%", borderRadius: 8, marginTop: 8 }}
-                  />
-                )}
-              </div>
+            {scenes.map((scene, index) => (
+              <SceneCard key={scene.id} scene={scene} index={index} />
             ))}
           </div>
         </div>

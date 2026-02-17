@@ -13,12 +13,14 @@ from app.database import get_db
 from app.models.scene import Scene, SceneStatus
 from app.models.character import Character
 from app.models.project import Project, ProjectStatus
+from app.models.episode import Episode, EpisodeStatus
 
 router = APIRouter()
 
 
 class GenerateAssetsRequest(BaseModel):
     project_id: str
+    episode_id: str | None = None
 
 
 class GenerateSceneImageRequest(BaseModel):
@@ -35,6 +37,7 @@ class GenerateSceneVideoRequest(BaseModel):
 
 class ComposeVideoRequest(BaseModel):
     project_id: str
+    episode_id: str | None = None
 
 
 @router.post("/generate-all-images")
@@ -59,13 +62,23 @@ async def generate_all_scene_images(
             detail=f"Project must be in STORYBOARD or IN_PRODUCTION status (current: {project.status})",
         )
 
-    # Get all pending scenes
-    result = await db.execute(
-        select(Scene).where(
-            Scene.project_id == req.project_id,
-            Scene.status == SceneStatus.PENDING.value,
-        ).order_by(Scene.sequence_order)
+    # Validate episode if provided
+    episode = None
+    if req.episode_id:
+        episode = await db.get(Episode, req.episode_id)
+        if not episode:
+            raise HTTPException(status_code=404, detail="Episode not found")
+        if episode.project_id != req.project_id:
+            raise HTTPException(status_code=400, detail="Episode does not belong to this project")
+
+    # Get pending scenes (filtered by episode if provided)
+    scene_query = select(Scene).where(
+        Scene.project_id == req.project_id,
+        Scene.status == SceneStatus.PENDING.value,
     )
+    if req.episode_id:
+        scene_query = scene_query.where(Scene.episode_id == req.episode_id)
+    result = await db.execute(scene_query.order_by(Scene.sequence_order))
     scenes = result.scalars().all()
 
     if not scenes:
@@ -97,7 +110,15 @@ async def generate_all_scene_images(
     for s in scenes:
         s.status = SceneStatus.GENERATING.value
 
-    project.status = ProjectStatus.PRODUCTION.value
+    # Only set project status to PRODUCTION if it's currently STORYBOARD (legacy).
+    # Don't downgrade IN_PRODUCTION to PRODUCTION.
+    if project.status == ProjectStatus.STORYBOARD.value:
+        project.status = ProjectStatus.PRODUCTION.value
+
+    # Advance episode status from STORYBOARD -> PRODUCTION
+    if episode and episode.status == EpisodeStatus.STORYBOARD.value:
+        episode.status = EpisodeStatus.PRODUCTION.value
+
     await db.flush()
 
     # Dispatch Celery tasks (after DB is released by endpoint return)
@@ -241,14 +262,22 @@ async def compose_final_video(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Check all scenes are READY
-    result = await db.execute(
-        select(Scene).where(Scene.project_id == req.project_id)
-    )
+    # Validate episode if provided
+    episode = None
+    if req.episode_id:
+        episode = await db.get(Episode, req.episode_id)
+        if not episode:
+            raise HTTPException(status_code=404, detail="Episode not found")
+
+    # Check all scenes are READY (filtered by episode if provided)
+    scene_query = select(Scene).where(Scene.project_id == req.project_id)
+    if req.episode_id:
+        scene_query = scene_query.where(Scene.episode_id == req.episode_id)
+    result = await db.execute(scene_query)
     scenes = result.scalars().all()
 
     if not scenes:
-        raise HTTPException(status_code=400, detail="No scenes in project")
+        raise HTTPException(status_code=400, detail="No scenes found")
 
     not_ready = [s for s in scenes if s.status != SceneStatus.READY.value]
     if not_ready:
@@ -257,7 +286,14 @@ async def compose_final_video(
             detail=f"{len(not_ready)} scenes are not READY yet",
         )
 
-    project.status = ProjectStatus.COMPOSING.value
+    # Only set project status to COMPOSING if it's currently PRODUCTION (legacy).
+    if project.status == ProjectStatus.PRODUCTION.value:
+        project.status = ProjectStatus.COMPOSING.value
+
+    # Advance episode status from PRODUCTION -> COMPOSING
+    if episode and episode.status == EpisodeStatus.PRODUCTION.value:
+        episode.status = EpisodeStatus.COMPOSING.value
+
     await db.flush()
 
     from app.tasks.compose_task import compose_project_video
