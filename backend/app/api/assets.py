@@ -298,7 +298,7 @@ async def compose_final_video(
 
     from app.tasks.compose_task import compose_project_video
 
-    task = compose_project_video.delay(req.project_id)
+    task = compose_project_video.delay(req.project_id, episode_id=req.episode_id)
 
     return {"project_id": req.project_id, "task_id": task.id, "status": "composition_started"}
 

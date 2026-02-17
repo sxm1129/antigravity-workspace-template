@@ -12,15 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task
-def compose_project_video(project_id: str):
-    """Compose all READY scene videos into a final output for the project.
+def compose_project_video(project_id: str, episode_id: str | None = None):
+    """Compose READY scene videos into a final output.
 
     Uses the configured compose provider (ffmpeg or remotion) via Strategy Pattern.
-    Only triggered when ALL scenes in a project have status = READY.
+    If episode_id is provided, only scenes from that episode are composed.
     """
     try:
         # Build SceneData list from database
-        scene_data_list = run_async(_get_scene_data(project_id))
+        scene_data_list = run_async(_get_scene_data(project_id, episode_id=episode_id))
 
         if not scene_data_list:
             logger.warning("No scene videos found for project %s", project_id)
@@ -61,6 +61,10 @@ def compose_project_video(project_id: str):
             final_video_path=result.output_path,
         ))
 
+        # Update episode status if episode-level compose
+        if episode_id:
+            run_async(_update_episode_status(episode_id, "COMPLETED", result.output_path))
+
         # Broadcast project completion via WebSocket
         run_async(_broadcast_project_update(project_id, ProjectStatus.COMPLETED.value))
 
@@ -82,8 +86,8 @@ def compose_project_video(project_id: str):
         return {"project_id": project_id, "status": "failed", "error": str(exc)}
 
 
-async def _get_scene_data(project_id: str) -> list:
-    """Build SceneData list from READY scenes."""
+async def _get_scene_data(project_id: str, episode_id: str | None = None) -> list:
+    """Build SceneData list from READY scenes, optionally filtered by episode."""
     from sqlalchemy import select
 
     from app.database import async_session_factory
@@ -91,11 +95,15 @@ async def _get_scene_data(project_id: str) -> list:
     from app.services.base_compose_service import SceneData
 
     async with async_session_factory() as session:
-        result = await session.execute(
+        query = (
             select(Scene)
             .where(Scene.project_id == project_id, Scene.status == SceneStatus.READY.value)
-            .order_by(Scene.sequence_order)
         )
+        if episode_id:
+            query = query.where(Scene.episode_id == episode_id)
+        query = query.order_by(Scene.sequence_order)
+
+        result = await session.execute(query)
         scenes = result.scalars().all()
         return [
             SceneData(
@@ -153,3 +161,20 @@ async def _broadcast_project_update(project_id: str, status: str) -> None:
     except Exception:
         pass
 
+
+async def _update_episode_status(episode_id: str, status: str, final_video_path: str | None = None) -> None:
+    """Update episode status and optionally save final_video_path."""
+    from sqlalchemy import update
+
+    from app.database import async_session_factory
+    from app.models.episode import Episode
+
+    values: dict = {"status": status}
+    if final_video_path is not None:
+        values["final_video_path"] = final_video_path
+
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Episode).where(Episode.id == episode_id).values(**values)
+        )
+        await session.commit()
