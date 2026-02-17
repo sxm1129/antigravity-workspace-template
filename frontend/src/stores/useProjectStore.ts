@@ -395,23 +395,11 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       await assetApi.composeFinal(projectId, episodeId);
-      // Poll until project status becomes COMPLETED (or timeout)
-      const maxAttempts = 150; // 5 minutes (2s intervals)
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const project = await projectApi.get(projectId);
-        set({ currentProject: project });
-        if (project.status === "COMPLETED") {
-          set({ loading: false });
-          return;
-        }
-        if (project.status !== "COMPOSING") {
-          // Unexpected status change
-          set({ loading: false });
-          return;
-        }
-      }
-      set({ loading: false, error: "合成超时，请检查后台日志" });
+      // Refresh project to show COMPOSING status immediately
+      const project = await projectApi.get(projectId);
+      set({ currentProject: project, loading: false });
+      // Status updates (COMPOSING → COMPLETED) are driven by WebSocket
+      // via project_update events — no polling needed.
     } catch (e: unknown) {
       set({ error: (e as Error).message, loading: false });
     }

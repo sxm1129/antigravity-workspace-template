@@ -64,8 +64,8 @@ async def synthesize_speech(
     # Dynamic timeout: base 60s + 10s per 50 chars, max 600s
     timeout = min(60.0 + len(text) // 50 * 10.0, 600.0)
 
-    client = _get_http_client(timeout=timeout)
-    response = await client.post(api_url, data=form_data)
+    client = _get_http_client()
+    response = await client.post(api_url, data=form_data, timeout=timeout)
     response.raise_for_status()
 
     result = response.json()

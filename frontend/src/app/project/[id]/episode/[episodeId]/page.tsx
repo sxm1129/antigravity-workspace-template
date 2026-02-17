@@ -4,7 +4,7 @@ import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useToastStore } from "@/stores/useToastStore";
-import { episodeApi, assetApi, projectApi, type Episode, type Scene } from "@/lib/api";
+import { episodeApi, assetApi, projectApi, mediaUrl, type Episode, type Scene } from "@/lib/api";
 import { connectProjectWS, type WSMessage } from "@/lib/ws";
 import SceneCard from "@/components/SceneCard";
 import { useCeleryGuard } from "@/components/CeleryGuard";
@@ -460,7 +460,7 @@ function EpisodeKanbanContent({
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 {episode.final_video_path && (
                   <a
-                    href={`/media/${episode.final_video_path}`}
+                    href={mediaUrl(episode.final_video_path) || "#"}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn-primary"
