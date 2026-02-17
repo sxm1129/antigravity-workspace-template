@@ -4,6 +4,7 @@ import { type Project, assetApi, mediaUrl } from "@/lib/api";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useToastStore } from "@/stores/useToastStore";
 import SceneCard from "@/components/SceneCard";
+import { useCeleryGuard } from "@/components/CeleryGuard";
 import { useEffect, useState, useRef } from "react";
 import { connectProjectWS, type WSMessage } from "@/lib/ws";
 
@@ -36,6 +37,7 @@ export default function KanbanBoard({ project }: { project: Project }) {
     loading,
   } = useProjectStore();
   const addToast = useToastStore((s) => s.addToast);
+  const { ensureWorker, guardDialog } = useCeleryGuard();
 
   // WebSocket for real-time updates
   useEffect(() => {
@@ -87,6 +89,9 @@ export default function KanbanBoard({ project }: { project: Project }) {
   }, [isComposing, refreshCurrentProject]);
 
   const handlePhaseAction = async () => {
+    // Pre-flight: ensure Celery worker is running
+    if (!(await ensureWorker())) return;
+
     if (project.status === "STORYBOARD") {
       await generateAllImages(project.id);
     } else if (project.status === "COMPOSING") {
@@ -124,6 +129,7 @@ export default function KanbanBoard({ project }: { project: Project }) {
 
   return (
     <div style={{ padding: "24px" }}>
+      {guardDialog}
       {/* Phase Header */}
       {phase && (
         <div

@@ -417,6 +417,40 @@ export const styleApi = {
     ),
 };
 
+// ──────── System API ────────
+
+export interface CeleryStatus {
+  status: "ok" | "offline" | "error";
+  workers: { name: string; status: string }[];
+  count: number;
+  active_tasks?: number;
+  reserved_tasks?: number;
+  message?: string;
+}
+
+export interface CeleryStartResult {
+  status: "started" | "already_running" | "error";
+  message: string;
+  pid?: number;
+}
+
+export const systemApi = {
+  celeryStatus: () =>
+    fetcher<unknown>("/api/system/status").then((r) => {
+      const celery = (r as Record<string, unknown>).celery as CeleryStatus | undefined;
+      return celery ?? { status: "error" as const, workers: [], count: 0 };
+    }),
+
+  celeryPing: () =>
+    fetcher<unknown>("/api/system/status").then((r) => {
+      const celery = (r as Record<string, unknown>).celery as CeleryStatus | undefined;
+      return celery?.status === "ok";
+    }),
+
+  celeryStart: () =>
+    fetcher<CeleryStartResult>("/api/system/celery/start", { method: "POST" }),
+};
+
 // ──────── Media URL helper ────────
 
 export function mediaUrl(relativePath: string | null): string | null {

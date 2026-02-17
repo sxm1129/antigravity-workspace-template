@@ -7,6 +7,7 @@ import { useToastStore } from "@/stores/useToastStore";
 import { episodeApi, assetApi, type Episode, type Scene } from "@/lib/api";
 import { connectProjectWS, type WSMessage } from "@/lib/ws";
 import SceneCard from "@/components/SceneCard";
+import { useCeleryGuard } from "@/components/CeleryGuard";
 
 type PageParams = { id: string; episodeId: string };
 
@@ -177,6 +178,7 @@ function EpisodeKanbanContent({
 }) {
   const { generateAllImages, composeFinal, updateSceneLocally, loading } = useProjectStore();
   const addToast = useToastStore((s) => s.addToast);
+  const { ensureWorker, guardDialog } = useCeleryGuard();
 
   const phase = EPISODE_PHASE_ACTIONS[episode.status];
 
@@ -204,6 +206,9 @@ function EpisodeKanbanContent({
   }, [project.id, episode.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePhaseAction = async () => {
+    // Pre-flight: ensure Celery worker is running
+    if (!(await ensureWorker())) return;
+
     if (episode.status === "STORYBOARD") {
       await generateAllImages(project.id, episode.id);
     } else if (episode.status === "COMPOSING") {
@@ -248,6 +253,7 @@ function EpisodeKanbanContent({
 
   return (
     <div style={{ padding: "24px" }}>
+      {guardDialog}
       {/* Phase Action Header */}
       {phase && (
         <div
