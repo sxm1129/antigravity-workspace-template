@@ -1,21 +1,28 @@
 import { Composition } from "remotion";
 import { ComicDrama } from "./ComicDrama";
-import type { ComicDramaProps } from "./types";
+import { SingleScene } from "./components/SingleScene";
 import { DEFAULTS } from "./types";
+import type { ComicDramaProps, SingleSceneProps } from "./types";
 
 /**
  * Root component — registers all Remotion compositions.
+ *
+ * Note: Remotion v4 Composition expects <ZodSchema, Props> generics.
+ * We bypass ZodSchema with `as any` since props come from JSON --props file.
  */
 export const RemotionRoot: React.FC = () => {
+  const ComicDramaComposition = Composition as any;
+  const SingleSceneComposition = Composition as any;
+
   return (
     <>
-      <Composition<ComicDramaProps>
+      <ComicDramaComposition
         id="ComicDrama"
         component={ComicDrama}
         fps={DEFAULTS.fps}
         width={DEFAULTS.width}
         height={DEFAULTS.height}
-        durationInFrames={240} // placeholder, overridden by calculateMetadata
+        durationInFrames={240}
         defaultProps={{
           title: "MotionWeaver Demo",
           fps: DEFAULTS.fps,
@@ -23,14 +30,14 @@ export const RemotionRoot: React.FC = () => {
           height: DEFAULTS.height,
           scenes: [],
           style: "default",
-        }}
-        calculateMetadata={({ props }) => {
-          // Total duration = sum of scene durations + title + credits - transitions overlap
+        } satisfies ComicDramaProps}
+        calculateMetadata={({ props }: { props: ComicDramaProps }) => {
           const sceneDuration = props.scenes.reduce(
-            (sum, s) => sum + s.durationInFrames,
-            0
+            (sum: number, s: { durationInFrames: number }) =>
+              sum + s.durationInFrames,
+            0,
           );
-          const titleDuration = 72; // 3 seconds at 24fps
+          const titleDuration = 72;
           const creditsDuration = 72;
           const transitionOverlap =
             Math.max(0, props.scenes.length - 1) *
@@ -45,6 +52,27 @@ export const RemotionRoot: React.FC = () => {
             height: props.height || DEFAULTS.height,
           };
         }}
+      />
+
+      {/* Single-scene image-to-video rendering (used as Seedance fallback) */}
+      <SingleSceneComposition
+        id="SingleSceneRender"
+        component={SingleScene}
+        fps={DEFAULTS.fps}
+        width={DEFAULTS.width}
+        height={DEFAULTS.height}
+        durationInFrames={120}
+        defaultProps={{
+          imageSrc: "",
+          durationInFrames: 120,
+          motionPreset: "zoom-in",
+        } satisfies SingleSceneProps}
+        calculateMetadata={({ props }: { props: SingleSceneProps }) => ({
+          durationInFrames: props.durationInFrames || 120,
+          fps: DEFAULTS.fps,
+          width: DEFAULTS.width,
+          height: DEFAULTS.height,
+        })}
       />
     </>
   );

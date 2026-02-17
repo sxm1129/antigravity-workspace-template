@@ -64,14 +64,27 @@ class VideoGenService(BaseGenService[str]):
         )
 
     async def _fallback(self, **kwargs: Any) -> str:
-        """Fallback to FFmpeg image-to-video with Ken Burns effect."""
-        logger.info("video_gen: using FFmpeg fallback for scene=%s", kwargs["scene_id"][:8])
-        return _ffmpeg_image_to_video(
-            kwargs["project_id"],
-            kwargs["scene_id"],
-            kwargs["local_image_path"],
-            kwargs.get("local_audio_path"),
-        )
+        """Fallback to Remotion image-to-video with cinematic Ken Burns effect.
+
+        If Remotion fails, falls back to FFmpeg as ultimate fallback.
+        """
+        logger.info("video_gen: using Remotion fallback for scene=%s", kwargs["scene_id"][:8])
+        try:
+            return _remotion_image_to_video(
+                kwargs["project_id"],
+                kwargs["scene_id"],
+                kwargs["local_image_path"],
+                kwargs.get("local_audio_path"),
+                kwargs.get("prompt_motion", ""),
+            )
+        except Exception as exc:
+            logger.warning("Remotion fallback failed (%s), using FFmpeg", exc)
+            return _ffmpeg_image_to_video(
+                kwargs["project_id"],
+                kwargs["scene_id"],
+                kwargs["local_image_path"],
+                kwargs.get("local_audio_path"),
+            )
 
     def _estimate_cost(self, **kwargs: Any) -> float:
         """Rough cost estimate per video generation call."""
@@ -130,10 +143,16 @@ async def _generate_video_core(
     if settings.USE_MOCK_API:
         return _mock_video(project_id, scene_id)
 
-    # Fallback to FFmpeg I2V if no ARK_API_KEY
+    # Fallback to Remotion I2V if no ARK_API_KEY
     if not settings.ARK_API_KEY:
-        logger.warning("No ARK_API_KEY set, using FFmpeg image-to-video fallback")
-        return _ffmpeg_image_to_video(project_id, scene_id, local_image_path, local_audio_path)
+        logger.warning("No ARK_API_KEY set, using Remotion image-to-video fallback")
+        try:
+            return _remotion_image_to_video(
+                project_id, scene_id, local_image_path, local_audio_path, prompt_motion
+            )
+        except Exception as exc:
+            logger.warning("Remotion fallback failed (%s), using FFmpeg", exc)
+            return _ffmpeg_image_to_video(project_id, scene_id, local_image_path, local_audio_path)
 
     # Read local image as Base64 for URL embedding
     image_full_path = os.path.join(settings.MEDIA_VOLUME, local_image_path)
@@ -300,6 +319,134 @@ def _mock_video(project_id: str, scene_id: str) -> str:
         logger.warning("FFmpeg not available, wrote placeholder MP4")
 
     return f"{project_id}/videos/{filename}"
+
+
+# ── Motion preset selection ──
+
+_MOTION_KEYWORDS: dict[str, list[str]] = {
+    "zoom-in": ["靠近", "特写", "聚焦", "放大", "close", "zoom in", "focus"],
+    "zoom-out": ["远景", "全景", "缩小", "拉远", "wide", "zoom out", "pull back"],
+    "pan-left": ["向左", "左移", "pan left", "左"],
+    "pan-right": ["向右", "右移", "pan right", "右"],
+    "drift": ["缓慢", "漂移", "dreamy", "drift", "float", "慢"],
+}
+
+_MOTION_PRESETS = ["zoom-in", "zoom-out", "pan-left", "pan-right", "drift"]
+
+
+def _select_motion_preset(prompt_motion: str, scene_id: str) -> str:
+    """Select a motion preset based on prompt_motion keywords or fallback to pseudo-random."""
+    prompt_lower = prompt_motion.lower()
+    for preset, keywords in _MOTION_KEYWORDS.items():
+        for kw in keywords:
+            if kw in prompt_lower:
+                return preset
+    # Deterministic pseudo-random based on scene_id hash
+    idx = hash(scene_id) % len(_MOTION_PRESETS)
+    return _MOTION_PRESETS[idx]
+
+
+def _remotion_image_to_video(
+    project_id: str,
+    scene_id: str,
+    local_image_path: str,
+    local_audio_path: str | None = None,
+    prompt_motion: str = "",
+) -> str:
+    """Render a single image to video using Remotion SingleSceneRender composition.
+
+    Produces higher quality output than FFmpeg Ken Burns with:
+    - Spring-based Ken Burns with easing
+    - Cinematic vignette overlay
+    - Film grain texture
+    - Smooth fade in/out
+
+    Falls back to FFmpeg if Remotion is not available.
+    """
+    import json
+    import subprocess
+
+    # Resolve paths
+    remotion_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", settings.REMOTION_PROJECT_PATH)
+    )
+    media_volume = os.path.abspath(settings.MEDIA_VOLUME)
+
+    image_full_path = os.path.join(media_volume, local_image_path)
+    if not os.path.exists(image_full_path):
+        raise FileNotFoundError(f"Image not found: {image_full_path}")
+
+    # Determine duration from audio, default 5s
+    duration = 5.0
+    audio_src = None
+    if local_audio_path:
+        audio_full = os.path.join(media_volume, local_audio_path)
+        if os.path.exists(audio_full):
+            duration = max(_probe_audio_duration(audio_full) + 0.5, 3.0)
+            # Audio path relative to Remotion public/media symlink
+            audio_src = f"http://localhost:9001/media/{local_audio_path}"
+
+    fps = 24
+    duration_frames = int(duration * fps)
+    motion_preset = _select_motion_preset(prompt_motion, scene_id)
+
+    # Build props
+    props = {
+        "imageSrc": f"http://localhost:9001/media/{local_image_path}",
+        "durationInFrames": duration_frames,
+        "motionPreset": motion_preset,
+    }
+    if audio_src:
+        props["audioSrc"] = audio_src
+
+    # Write props and set output path
+    output_dir = os.path.join(media_volume, project_id, "videos")
+    os.makedirs(output_dir, exist_ok=True)
+
+    props_path = os.path.join(output_dir, f"{scene_id}_props.json")
+    output_path = os.path.join(output_dir, f"{scene_id}.mp4")
+
+    with open(props_path, "w", encoding="utf-8") as f:
+        json.dump(props, f, ensure_ascii=False, indent=2)
+
+    # Render via Remotion CLI
+    cmd = [
+        "npx", "remotion", "render",
+        "SingleSceneRender",
+        "--props", os.path.abspath(props_path),
+        "--output", os.path.abspath(output_path),
+        "--codec", "h264",
+        "--concurrency", "2",
+    ]
+
+    logger.info(
+        "Remotion I2V: scene=%s preset=%s duration=%.1fs frames=%d",
+        scene_id[:8], motion_preset, duration, duration_frames,
+    )
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=remotion_dir,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            logger.error("Remotion I2V failed (rc=%d): %s", result.returncode, result.stderr[-500:])
+            raise RuntimeError(f"Remotion render failed: {result.stderr[-200:]}")
+
+        logger.info("Remotion I2V success: scene=%s → %s", scene_id[:8], output_path)
+
+    finally:
+        # Clean up props file
+        try:
+            os.remove(props_path)
+        except OSError:
+            pass
+
+    return f"{project_id}/videos/{scene_id}.mp4"
 
 
 def _ffmpeg_image_to_video(

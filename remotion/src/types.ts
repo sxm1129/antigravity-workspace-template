@@ -53,6 +53,20 @@ export interface SceneProps {
 }
 
 /**
+ * Props for single-scene image-to-video rendering (fallback mode).
+ */
+export interface SingleSceneProps {
+  /** Image source — absolute path or HTTP URL */
+  imageSrc: string;
+  /** TTS audio source (optional) */
+  audioSrc?: string;
+  /** Duration in frames */
+  durationInFrames: number;
+  /** Motion preset for Ken Burns effect */
+  motionPreset: "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "drift";
+}
+
+/**
  * Default values for missing optional fields.
  */
 export const DEFAULTS = {
