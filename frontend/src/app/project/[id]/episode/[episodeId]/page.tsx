@@ -469,10 +469,20 @@ function EpisodeKanbanContent({
                   className="btn-secondary"
                   onClick={async () => {
                     if (!(await ensureWorker())) return;
-                    await composeFinal(project.id, episode.id);
-                    const updatedEp = await episodeApi.get(episode.id);
-                    onEpisodeUpdate(updatedEp);
-                    addToast("success", "已重新触发合成");
+                    // Optimistically switch to COMPOSING so progress bar appears
+                    onEpisodeUpdate({ ...episode, status: "COMPOSING" });
+                    setComposeProgress({ rendered: 0, total: 0, percent: 0 });
+                    try {
+                      await composeFinal(project.id, episode.id);
+                      const updatedEp = await episodeApi.get(episode.id);
+                      onEpisodeUpdate(updatedEp);
+                      addToast("success", "已重新触发合成");
+                    } catch (err: unknown) {
+                      // Revert on failure
+                      onEpisodeUpdate({ ...episode, status: "COMPLETED" });
+                      setComposeProgress(null);
+                      addToast("error", err instanceof Error ? err.message : "合成失败");
+                    }
                   }}
                   disabled={loading}
                   style={{ fontSize: 12, padding: "6px 14px" }}

@@ -1,0 +1,16 @@
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:9000
+- Network:       http://192.168.1.139:9000
+
+✓ Starting...
+✓ Ready in 831ms
+ GET / 200 in 515ms (compile: 425ms, render: 90ms)
+(node:44673) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /project/cf8eabde75194e04a1cceb9bd040db7a 200 in 330ms (compile: 316ms, render: 15ms)
+ GET /project/cf8eabde75194e04a1cceb9bd040db7a/episode/28d87e48db7a4e5bb3e6b0cf112a73bf 200 in 399ms (compile: 384ms, render: 15ms)
+✓ Compiled in 267ms
+Failed to proxy http://localhost:9001/ws/cf8eabde75194e04a1cceb9bd040db7a Error: This socket has been ended by the other party
+    at ignore-listed frames {
+  code: 'EPIPE'
+}

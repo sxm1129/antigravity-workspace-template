@@ -325,8 +325,12 @@ async def compose_final_video(
     if project.status == ProjectStatus.PRODUCTION.value:
         project.status = ProjectStatus.COMPOSING.value
 
-    # Advance episode status from PRODUCTION -> COMPOSING
-    if episode and episode.status == EpisodeStatus.PRODUCTION.value:
+    # Advance episode status to COMPOSING for compose
+    if episode and episode.status in (
+        EpisodeStatus.PRODUCTION.value,
+        EpisodeStatus.COMPLETED.value,
+        EpisodeStatus.COMPOSING.value,
+    ):
         episode.status = EpisodeStatus.COMPOSING.value
 
     await db.flush()

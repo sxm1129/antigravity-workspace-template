@@ -1,0 +1,11 @@
+INFO:     Will watch for changes in these directories: ['/Users/hs/workspace/github/comicDramaStudio/backend']
+INFO:     Uvicorn running on http://0.0.0.0:9001 (Press CTRL+C to quit)
+INFO:     Started reloader process [45235] using WatchFiles
+INFO:     Started server process [45317]
+INFO:     Waiting for application startup.
+2026-02-17 21:05:11,426 [INFO] app.main: MotionWeaver starting up...
+2026-02-17 21:05:11,427 [INFO] app.main: USE_MOCK_API: False
+2026-02-17 21:05:11,427 [INFO] app.main: Database: root@39.98.37.143/comicdrama
+2026-02-17 21:05:12,054 [INFO] app.main: Startup recovery: no stuck scenes found
+2026-02-17 21:05:12,054 [INFO] app.main: Skipping init_db (tables assumed to exist)
+INFO:     Application startup complete.
