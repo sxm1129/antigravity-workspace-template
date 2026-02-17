@@ -10,6 +10,7 @@ Selected via settings.COMPOSE_PROVIDER.
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -60,6 +61,7 @@ class BaseComposeService(ABC):
         episode_title: str | None = None,
         bgm_path: str | None = None,
         style: str = "default",
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> ComposeResult:
         """Compose scene clips into a final video.
 

@@ -30,13 +30,20 @@ class FFmpegComposeService(BaseComposeService):
         episode_title: str | None = None,
         bgm_path: str | None = None,
         style: str = "default",
+        on_progress=None,
     ) -> ComposeResult:
         """Delegate to existing compose_final_video (normalize + concat)."""
         video_paths = [s.video_path for s in scenes if s.video_path]
         if not video_paths:
             raise ValueError("No scene videos to compose")
 
+        if on_progress:
+            on_progress(0, len(video_paths))
+
         output_path = compose_final_video(project_id, video_paths)
+
+        if on_progress:
+            on_progress(len(video_paths), len(video_paths))
 
         return ComposeResult(
             output_path=output_path,

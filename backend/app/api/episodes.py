@@ -164,6 +164,7 @@ async def reset_episode_status(episode_id: str, db: AsyncSession = Depends(get_d
             detail=f"Cannot reset from status '{episode.status}'. Only COMPOSING/COMPLETED can be reset."
         )
 
+    old_status = episode.status
     episode.status = EpisodeStatus.PRODUCTION.value
     await db.flush()
 
@@ -173,5 +174,5 @@ async def reset_episode_status(episode_id: str, db: AsyncSession = Depends(get_d
     )
     scenes_count = count_result.scalar() or 0
 
-    logger.info("Episode %s reset from %s to PRODUCTION", episode_id, episode.status)
+    logger.info("Episode %s reset from %s to PRODUCTION", episode_id, old_status)
     return _episode_to_read(episode, scenes_count)
