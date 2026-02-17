@@ -63,7 +63,7 @@ class Settings(BaseSettings):
 
     # --- DashScope / Alibaba Bailian (Video Generation) ---
     DASHSCOPE_API_KEY: str = ""
-    DASHSCOPE_VIDEO_MODEL: str = "wanx2.1-kf2v-plus"
+    DASHSCOPE_VIDEO_MODEL: str = "wanx2.1-i2v-plus"
     DASHSCOPE_ENDPOINT: str = "https://dashscope.aliyuncs.com/api/v1"
 
     # --- Legacy keys (kept for backward compat) ---

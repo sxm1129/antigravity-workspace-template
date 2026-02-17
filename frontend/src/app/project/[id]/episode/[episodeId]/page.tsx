@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, use } from "react";
+import { useEffect, useState, useRef, useCallback, use, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useToastStore } from "@/stores/useToastStore";
@@ -138,7 +138,7 @@ export default function EpisodeKanbanPage(props: { params: Promise<PageParams> }
           project={currentProject}
           episode={episode}
           scenes={episodeScenes}
-          onScenesUpdate={(scenes) => setEpisodeScenes(scenes)}
+          onScenesUpdate={setEpisodeScenes}
           onEpisodeUpdate={(ep) => setEpisode(ep)}
         />
       </div>
@@ -173,7 +173,7 @@ function EpisodeKanbanContent({
   project: { id: string; title: string; status: string; tts_voice?: string | null };
   episode: Episode;
   scenes: Scene[];
-  onScenesUpdate: (scenes: Scene[]) => void;
+  onScenesUpdate: Dispatch<SetStateAction<Scene[]>>;
   onEpisodeUpdate: (episode: Episode) => void;
 }) {
   const { generateAllImages, composeFinal, updateSceneLocally, loading } = useProjectStore();
@@ -204,25 +204,30 @@ function EpisodeKanbanContent({
 
   // ── WebSocket for real-time scene updates ──
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref to hold latest setters so the WS effect avoids stale closures
+  // without needing scenes/onScenesUpdate in its dependency list.
+  const scenesUpdaterRef = useRef(onScenesUpdate);
+  scenesUpdaterRef.current = onScenesUpdate;
 
   const debouncedRefetch = useCallback(() => {
     if (refetchTimer.current) clearTimeout(refetchTimer.current);
     refetchTimer.current = setTimeout(() => {
-      episodeApi.listScenes(episode.id).then(onScenesUpdate);
+      episodeApi.listScenes(episode.id).then((s) => scenesUpdaterRef.current(s));
       episodeApi.get(episode.id).then(onEpisodeUpdate);
-    }, 500);
-  }, [episode.id, onScenesUpdate, onEpisodeUpdate]);
+    }, 800);
+  }, [episode.id, onEpisodeUpdate]);
 
   useEffect(() => {
     const conn = connectProjectWS(project.id, (msg: WSMessage) => {
       if (msg.type === "scene_update" && msg.scene_id && msg.status) {
-        // Local-only update: avoids full re-render from API re-fetch
-        onScenesUpdate(
-          scenes.map((s) => s.id === msg.scene_id ? { ...s, status: msg.status! } : s)
+        // Functional update — no stale closure, no full re-render flicker.
+        scenesUpdaterRef.current((prev) =>
+          prev.map((s) =>
+            s.id === msg.scene_id ? { ...s, status: msg.status! } : s
+          )
         );
-        updateSceneLocally(msg.scene_id, { status: msg.status });
-        // Debounced re-fetch for significant status changes
-        if (["REVIEW", "READY", "audio_done"].includes(msg.status)) {
+        // Debounced full re-fetch only on significant terminal states
+        if (["REVIEW", "READY", "ERROR", "audio_done"].includes(msg.status)) {
           debouncedRefetch();
         }
       }

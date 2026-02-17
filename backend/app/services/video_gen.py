@@ -312,7 +312,7 @@ async def _download_video(url: str, project_id: str, scene_id: str) -> str:
     return f"{project_id}/videos/{filename}"
 
 
-# ── DashScope wanx2.1-kf2v-plus (Key-Frame to Video) ──
+# ── DashScope wanx2.1-i2v (Image to Video) ──
 
 async def _dashscope_image_to_video(
     prompt_motion: str,
@@ -321,7 +321,7 @@ async def _dashscope_image_to_video(
     local_image_path: str,
     local_audio_path: str | None = None,
 ) -> str:
-    """Generate video from image using Alibaba DashScope wanx2.1-kf2v-plus.
+    """Generate video from image using Alibaba DashScope wanx I2V.
 
     Async task pattern:
     1. POST /services/aigc/image2video/video-synthesis  →  task_id
@@ -334,11 +334,11 @@ async def _dashscope_image_to_video(
 
     image_data_url = f"data:image/png;base64,{image_b64}"
 
-    # Build request payload
+    # Build request payload — i2v uses `image_url`, kf2v uses `first_frame_url`
     payload = {
         "model": settings.DASHSCOPE_VIDEO_MODEL,
         "input": {
-            "first_frame_url": image_data_url,
+            "image_url": image_data_url,
             "prompt": prompt_motion or "缓慢推进，柔和的光线变化，电影质感画面",
         },
         "parameters": {
