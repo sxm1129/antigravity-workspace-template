@@ -22,23 +22,23 @@ settings = get_settings()
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def generate_scene_audio(self, scene_id: str, project_id: str, dialogue_text: str):
+def generate_scene_audio(self, scene_id: str, project_id: str, dialogue_text: str, voice: str | None = None):
     """Generate TTS audio for a scene's dialogue."""
     try:
         from app.services.tts_service import synthesize_speech
 
-        rel_path = run_async(
-            synthesize_speech(dialogue_text, project_id, scene_id)
+        rel_path, audio_duration = run_async(
+            synthesize_speech(dialogue_text, project_id, scene_id, voice=voice)
         )
 
-        # Update scene in DB
-        run_async(_update_scene_path(scene_id, "local_audio_path", rel_path))
-        logger.info("Audio generated for scene %s: %s", scene_id, rel_path)
+        # Update scene in DB with path and duration
+        run_async(_update_scene_fields(scene_id, local_audio_path=rel_path, audio_duration=audio_duration))
+        logger.info("Audio generated for scene %s: %s (%.2fs)", scene_id, rel_path, audio_duration)
 
         # Broadcast via Redis Pub/Sub
         _publish_scene_update(project_id, scene_id, "audio_done")
 
-        return {"scene_id": scene_id, "audio_path": rel_path}
+        return {"scene_id": scene_id, "audio_path": rel_path, "audio_duration": audio_duration}
 
     except Exception as exc:
         logger.error("Audio generation failed for scene %s: %s", scene_id, exc)
@@ -115,9 +115,12 @@ def generate_scene_video(
             generate_video(prompt_motion, project_id, scene_id, local_image_path, local_audio_path)
         )
 
-        run_async(_update_scene_path(scene_id, "local_video_path", rel_path))
+        # Probe video duration from the generated file
+        video_dur = _probe_video_duration(project_id, rel_path)
+
+        run_async(_update_scene_fields(scene_id, local_video_path=rel_path, video_duration=video_dur))
         run_async(_update_scene_status(scene_id, SceneStatus.READY.value))
-        logger.info("Video generated for scene %s: %s", scene_id, rel_path)
+        logger.info("Video generated for scene %s: %s (%.1fs)", scene_id, rel_path, video_dur)
 
         # Broadcast final status
         _publish_scene_update(project_id, scene_id, SceneStatus.READY.value)
@@ -133,8 +136,8 @@ def generate_scene_video(
         redis_client.delete(lock_key)
 
 
-async def _update_scene_path(scene_id: str, field: str, value: str) -> None:
-    """Update a single field on a scene record."""
+async def _update_scene_fields(scene_id: str, **kwargs) -> None:
+    """Update multiple fields on a scene record."""
     from sqlalchemy import update
 
     from app.database import async_session_factory
@@ -142,14 +145,41 @@ async def _update_scene_path(scene_id: str, field: str, value: str) -> None:
 
     async with async_session_factory() as session:
         await session.execute(
-            update(Scene).where(Scene.id == scene_id).values(**{field: value})
+            update(Scene).where(Scene.id == scene_id).values(**kwargs)
         )
         await session.commit()
 
 
+async def _update_scene_path(scene_id: str, field: str, value: str) -> None:
+    """Update a single field on a scene record."""
+    await _update_scene_fields(scene_id, **{field: value})
+
+
 async def _update_scene_status(scene_id: str, status: str) -> None:
     """Update scene status."""
-    await _update_scene_path(scene_id, "status", status)
+    await _update_scene_fields(scene_id, status=status)
+
+
+def _probe_video_duration(project_id: str, rel_path: str) -> float:
+    """Probe video file duration using ffprobe."""
+    import subprocess
+
+    full_path = f"{settings.MEDIA_VOLUME}/{rel_path}"
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                full_path,
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return float(result.stdout.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        pass
+    return 5.0
 
 
 def _publish_scene_update(project_id: str, scene_id: str, status: str) -> None:

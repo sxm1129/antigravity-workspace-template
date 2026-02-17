@@ -12,6 +12,7 @@ export interface Project {
   full_script: string | null;
   final_video_path: string | null;
   style_preset: string | null;
+  tts_voice: string | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -386,6 +387,9 @@ export const assetApi = {
       method: "POST",
       body: JSON.stringify({ scene_ids: sceneIds }),
     }),
+
+  getTtsVoices: () =>
+    fetcher<{ id: string; label: string; lang: string }[]>("/api/assets/tts-voices"),
 };
 
 // ──────── Quick Draft API ────────

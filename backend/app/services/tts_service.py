@@ -34,7 +34,7 @@ async def synthesize_speech(
     project_id: str,
     scene_id: str,
     voice: str | None = None,
-) -> str:
+) -> tuple[str, float]:
     """Synthesize speech from text and save WAV to media_volume.
 
     Args:
@@ -44,10 +44,11 @@ async def synthesize_speech(
         voice: Voice index (defaults to settings.INDEX_TTS_VOICE).
 
     Returns:
-        Relative path to the generated audio file in media_volume.
+        Tuple of (relative_path, duration_seconds).
     """
     if settings.USE_MOCK_API:
-        return await _mock_tts(project_id, scene_id)
+        rel_path = await _mock_tts(project_id, scene_id)
+        return rel_path, 2.0
 
     voice = voice or settings.INDEX_TTS_VOICE
     api_url = f"{settings.INDEX_TTS_URL}/api/v1/tts"
@@ -77,8 +78,38 @@ async def synthesize_speech(
 
     # Save to media_volume
     rel_path = _save_audio(audio_bytes, project_id, scene_id)
-    logger.info("TTS audio saved: %s (%d bytes)", rel_path, len(audio_bytes))
-    return rel_path
+    duration = _wav_duration(audio_bytes)
+    logger.info("TTS audio saved: %s (%d bytes, %.2fs)", rel_path, len(audio_bytes), duration)
+    return rel_path, duration
+
+
+def _wav_duration(audio_bytes: bytes) -> float:
+    """Calculate duration of WAV audio from raw bytes.
+
+    Reads the WAV header to extract sample rate, channels, and bits per sample,
+    then computes duration from data size.
+    """
+    import struct
+
+    if len(audio_bytes) < 44:
+        return 5.0  # fallback
+
+    try:
+        # WAV header: bytes 24-28 = sample_rate, 34-36 = bits_per_sample
+        # bytes 22-24 = num_channels, bytes 40-44 = data_size
+        num_channels = struct.unpack_from("<H", audio_bytes, 22)[0]
+        sample_rate = struct.unpack_from("<I", audio_bytes, 24)[0]
+        bits_per_sample = struct.unpack_from("<H", audio_bytes, 34)[0]
+        data_size = struct.unpack_from("<I", audio_bytes, 40)[0]
+
+        if sample_rate == 0 or num_channels == 0 or bits_per_sample == 0:
+            return 5.0
+
+        bytes_per_sample = bits_per_sample // 8
+        num_samples = data_size // (num_channels * bytes_per_sample)
+        return num_samples / sample_rate
+    except (struct.error, ZeroDivisionError):
+        return 5.0
 
 
 def _save_audio(audio_bytes: bytes, project_id: str, scene_id: str) -> str:

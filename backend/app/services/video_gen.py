@@ -310,8 +310,7 @@ def _ffmpeg_image_to_video(
 ) -> str:
     """Create a video from an image using FFmpeg with Ken Burns zoom effect.
 
-    Generates a 5-second 720p video with a slow zoom-in effect from the image.
-    Optionally overlays audio if available.
+    Duration is driven by audio length (+ 0.5s padding). Falls back to 5s if no audio.
     """
     import subprocess
 
@@ -326,39 +325,46 @@ def _ffmpeg_image_to_video(
         logger.error("Image not found for video gen: %s", image_full_path)
         return _mock_video(project_id, scene_id)
 
-    # Ken Burns zoom: slowly zoom from 100% to 110% over 5 seconds
-    zoom_filter = (
-        "scale=2560:-1,"
-        "zoompan=z='min(zoom+0.002,1.1)':d=120:x='iw/2-(iw/zoom/2)'"
-        ":y='ih/2-(ih/zoom/2)':s=1280x720:fps=24,"
-        "setpts=PTS-STARTPTS"
-    )
-
-    # Build base command
+    # Determine duration from audio, default 5s
+    duration = 5.0
+    audio_full = None
     if local_audio_path:
         audio_full = os.path.join(settings.MEDIA_VOLUME, local_audio_path)
         if os.path.exists(audio_full):
-            cmd = [
-                "ffmpeg", "-y",
-                "-loop", "1", "-i", image_full_path,
-                "-i", audio_full,
-                "-vf", zoom_filter,
-                "-t", "5",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac", "-b:a", "128k",
-                "-pix_fmt", "yuv420p", "-shortest",
-                filepath,
-            ]
+            duration = max(_probe_audio_duration(audio_full) + 0.5, 3.0)
         else:
-            local_audio_path = None
+            audio_full = None
 
-    if not local_audio_path:
+    # zoompan d parameter = duration * fps (24)
+    zoom_frames = int(duration * 24)
+    zoom_filter = (
+        f"scale=2560:-1,"
+        f"zoompan=z='min(zoom+0.002,1.1)':d={zoom_frames}:x='iw/2-(iw/zoom/2)'"
+        f":y='ih/2-(ih/zoom/2)':s=1280x720:fps=24,"
+        f"setpts=PTS-STARTPTS"
+    )
+
+    t_str = f"{duration:.1f}"
+
+    if audio_full:
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1", "-i", image_full_path,
+            "-i", audio_full,
+            "-vf", zoom_filter,
+            "-t", t_str,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-pix_fmt", "yuv420p", "-shortest",
+            filepath,
+        ]
+    else:
         cmd = [
             "ffmpeg", "-y",
             "-loop", "1", "-i", image_full_path,
             "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
             "-vf", zoom_filter,
-            "-t", "5",
+            "-t", t_str,
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "aac", "-b:a", "128k",
             "-pix_fmt", "yuv420p", "-shortest",
@@ -366,7 +372,7 @@ def _ffmpeg_image_to_video(
         ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             logger.error("FFmpeg I2V failed: %s", result.stderr[-500:])
             return _mock_video(project_id, scene_id)
@@ -374,5 +380,28 @@ def _ffmpeg_image_to_video(
         logger.error("FFmpeg I2V error, falling back to mock")
         return _mock_video(project_id, scene_id)
 
-    logger.info("FFmpeg I2V video created: %s", filepath)
+    logger.info("FFmpeg I2V video created: %s (%.1fs)", filepath, duration)
     return f"{project_id}/videos/{filename}"
+
+
+def _probe_audio_duration(audio_path: str) -> float:
+    """Probe audio file duration using ffprobe. Returns seconds."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                audio_path,
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return float(result.stdout.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        pass
+
+    logger.warning("ffprobe failed for %s, defaulting to 5s", audio_path)
+    return 5.0

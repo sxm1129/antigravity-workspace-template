@@ -88,6 +88,9 @@ class Project(Base):
     style_preset: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True, default="default"
     )
+    tts_voice: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, default="en_female_midnight"
+    )
     draft_progress: Mapped[Optional[str]] = mapped_column(
         String(500), nullable=True
     )

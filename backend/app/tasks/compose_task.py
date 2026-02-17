@@ -114,6 +114,11 @@ async def _get_scene_data(project_id: str, episode_id: str | None = None) -> lis
                 sfx_text=s.sfx_text,
                 prompt_motion=s.prompt_motion,
                 sequence_order=s.sequence_order,
+                duration_seconds=max(
+                    s.audio_duration or 0,
+                    s.video_duration or 0,
+                    5.0,
+                ),
             )
             for s in scenes
             if s.local_video_path

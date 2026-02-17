@@ -23,6 +23,7 @@ class ProjectUpdate(BaseModel):
     logline: str | None = None
     world_outline: str | None = None
     full_script: str | None = None
+    tts_voice: str | None = None
 
 
 class ProjectStatusUpdate(BaseModel):
@@ -38,6 +39,7 @@ class ProjectRead(BaseModel):
     title: str
     logline: str | None = None
     style_preset: str | None = None
+    tts_voice: str | None = None
     mode: str | None = None
     world_outline: str | None = None
     full_script: str | None = None

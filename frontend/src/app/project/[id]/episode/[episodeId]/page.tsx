@@ -4,7 +4,7 @@ import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useToastStore } from "@/stores/useToastStore";
-import { episodeApi, assetApi, type Episode, type Scene } from "@/lib/api";
+import { episodeApi, assetApi, projectApi, type Episode, type Scene } from "@/lib/api";
 import { connectProjectWS, type WSMessage } from "@/lib/ws";
 import SceneCard from "@/components/SceneCard";
 import { useCeleryGuard } from "@/components/CeleryGuard";
@@ -170,7 +170,7 @@ const EPISODE_PHASE_ACTIONS: Record<string, { label: string; description: string
 function EpisodeKanbanContent({
   project, episode, scenes, onScenesUpdate, onEpisodeUpdate,
 }: {
-  project: { id: string; title: string; status: string };
+  project: { id: string; title: string; status: string; tts_voice?: string | null };
   episode: Episode;
   scenes: Scene[];
   onScenesUpdate: (scenes: Scene[]) => void;
@@ -182,6 +182,22 @@ function EpisodeKanbanContent({
   const [composeProgress, setComposeProgress] = useState<{
     rendered: number; total: number; percent: number;
   } | null>(null);
+  const [ttsVoices, setTtsVoices] = useState<{ id: string; label: string; lang: string }[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState<string>(project.tts_voice || "en_female_midnight");
+
+  // Fetch TTS voices on mount
+  useEffect(() => {
+    assetApi.getTtsVoices().then(setTtsVoices).catch(() => {});
+  }, []);
+
+  const handleVoiceChange = async (voiceId: string) => {
+    setSelectedVoice(voiceId);
+    try {
+      await projectApi.update(project.id, { tts_voice: voiceId } as Partial<any>);
+    } catch {
+      // silent
+    }
+  };
 
   const phase = EPISODE_PHASE_ACTIONS[episode.status];
 
@@ -291,14 +307,36 @@ function EpisodeKanbanContent({
           </div>
           <div style={{ display: "flex", gap: 10, flexShrink: 0, marginLeft: 24 }}>
             {episode.status === "STORYBOARD" && (
-              <button
-                className="btn-primary"
-                onClick={handlePhaseAction}
-                disabled={loading}
-              >
-                {loading ? <span className="spinner" /> : null}
-                {phase.label}
-              </button>
+              <>
+                <select
+                  value={selectedVoice}
+                  onChange={(e) => handleVoiceChange(e.target.value)}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-elevated)",
+                    color: "var(--text-primary)",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    minWidth: 200,
+                  }}
+                >
+                  {ttsVoices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn-primary"
+                  onClick={handlePhaseAction}
+                  disabled={loading}
+                >
+                  {loading ? <span className="spinner" /> : null}
+                  {phase.label}
+                </button>
+              </>
             )}
             {episode.status === "PRODUCTION" && reviewCount > 0 && (
               <button

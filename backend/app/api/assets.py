@@ -40,6 +40,38 @@ class ComposeVideoRequest(BaseModel):
     episode_id: str | None = None
 
 
+# Available TTS voices (from IndexTTS API)
+TTS_VOICES = [
+    {"id": "en_female_midnight", "label": "🌙 Midnight (EN)", "lang": "en"},
+    {"id": "en_female_midnight_2", "label": "🌙 Midnight V2 (EN)", "lang": "en"},
+    {"id": "en_female_mature", "label": "👩 Mature (EN)", "lang": "en"},
+    {"id": "en_female_smoky", "label": "🌫 Smoky (EN)", "lang": "en"},
+    {"id": "en_female_whisper", "label": "🤫 Whisper (EN)", "lang": "en"},
+    {"id": "en_female_gossip", "label": "🎭 Gossip (EN)", "lang": "en"},
+    {"id": "en_female_morning", "label": "☀️ Morning (EN)", "lang": "en"},
+    {"id": "en_female_intellectual", "label": "🎓 Intellectual (EN)", "lang": "en"},
+    {"id": "en_female_investigative", "label": "🔍 Investigative (EN)", "lang": "en"},
+    {"id": "en_male_sports", "label": "⚽ Sports (EN)", "lang": "en"},
+    {"id": "en_male_tech", "label": "💻 Tech (EN)", "lang": "en"},
+    {"id": "en_male_breaking_news", "label": "📢 Breaking News (EN)", "lang": "en"},
+    {"id": "en_male_talk_show", "label": "🎤 Talk Show (EN)", "lang": "en"},
+    {"id": "zh_female_gossip", "label": "🎭 八卦 (中)", "lang": "zh"},
+    {"id": "zh_female_morning", "label": "☀️ 早间主播 (中)", "lang": "zh"},
+    {"id": "zh_female_intellectual", "label": "🎓 知性 (中)", "lang": "zh"},
+    {"id": "zh_female_investigative", "label": "🔍 调查记者 (中)", "lang": "zh"},
+    {"id": "zh_male_sports", "label": "⚽ 体育解说 (中)", "lang": "zh"},
+    {"id": "zh_male_tech", "label": "💻 科技UP主 (中)", "lang": "zh"},
+    {"id": "zh_male_breaking_news", "label": "📢 突发新闻 (中)", "lang": "zh"},
+    {"id": "zh_male_talk_show", "label": "🎤 脱口秀 (中)", "lang": "zh"},
+]
+
+
+@router.get("/tts-voices")
+async def list_tts_voices():
+    """Return available TTS voice options."""
+    return TTS_VOICES
+
+
 @router.post("/generate-all-images")
 async def generate_all_scene_images(
     req: GenerateAssetsRequest, db: AsyncSession = Depends(get_db)
@@ -124,12 +156,15 @@ async def generate_all_scene_images(
     # Dispatch Celery tasks (after DB is released by endpoint return)
     from app.tasks.asset_tasks import generate_scene_audio, generate_scene_image
 
+    # Get project voice setting
+    tts_voice = getattr(project, "tts_voice", None)
+
     task_ids = []
     for sd in scene_data_list:
         # TTS task
         if sd["dialogue_text"]:
             audio_task = generate_scene_audio.delay(
-                sd["scene_id"], sd["project_id"], sd["dialogue_text"]
+                sd["scene_id"], sd["project_id"], sd["dialogue_text"], tts_voice
             )
             task_ids.append({"scene_id": sd["scene_id"], "task": "audio", "task_id": audio_task.id})
 

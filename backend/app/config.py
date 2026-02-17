@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     # --- IndexTTS ---
     INDEX_TTS_URL: str = "http://39.102.122.9:8049"
-    INDEX_TTS_VOICE: str = "zh_male_tech"
+    INDEX_TTS_VOICE: str = "en_female_midnight"
 
     # --- Quality Scoring ---
     ENABLE_AUTO_SCORING: bool = False

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Integer, String, Text, func
+from sqlalchemy import Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -66,6 +66,12 @@ class Scene(Base):
     )
     local_video_path: Mapped[Optional[str]] = mapped_column(
         String(1024), nullable=True
+    )
+    audio_duration: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True
+    )
+    video_duration: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True
     )
 
     # Scene status

@@ -33,8 +33,18 @@ export const SceneClip: React.FC<SceneClipProps> = ({ scene, style }) => {
         }}
       />
 
-      {/* TTS narration audio */}
-      {scene.audioSrc && <Audio src={scene.audioSrc} />}
+      {/* TTS narration audio — endAt prevents bleed into next scene */}
+      {scene.audioSrc && (
+        <Audio
+          src={scene.audioSrc}
+          endAt={scene.durationInFrames}
+          volume={(f) =>
+            f > scene.durationInFrames - 8
+              ? Math.max(0, (scene.durationInFrames - f) / 8)
+              : 1
+          }
+        />
+      )}
 
       {/* Dialogue bubble */}
       {scene.dialogue && (
