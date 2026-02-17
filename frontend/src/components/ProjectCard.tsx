@@ -2,6 +2,7 @@
 
 import { type Project } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import { useProjectStore } from "@/stores/useProjectStore";
 
 const STATUS_MAP: Record<string, { label: string; cls: string }> = {
   DRAFT: { label: "草稿", cls: "badge-ideation" },
@@ -15,7 +16,18 @@ const STATUS_MAP: Record<string, { label: string; cls: string }> = {
 
 export default function ProjectCard({ project }: { project: Project }) {
   const router = useRouter();
+  const { deleteProject } = useProjectStore();
   const status = STATUS_MAP[project.status] || { label: project.status, cls: "badge-ideation" };
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`确认删除项目「${project.title}」?\n此操作不可撤销，项目下所有剧集、场景、资产将一并删除。`)) return;
+    try {
+      await deleteProject(project.id);
+    } catch {
+      // handled by store
+    }
+  };
 
   return (
     <div
@@ -69,7 +81,34 @@ export default function ProjectCard({ project }: { project: Project }) {
         >
           {project.title}
         </h3>
-        <span className={`badge ${status.cls}`}>{status.label}</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span className={`badge ${status.cls}`}>{status.label}</span>
+          <button
+            onClick={handleDelete}
+            title="删除项目"
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              fontSize: 14,
+              color: "var(--text-muted)",
+              padding: "2px 6px",
+              borderRadius: 4,
+              transition: "all 0.2s",
+              opacity: 0.4,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--accent-danger)";
+              e.currentTarget.style.opacity = "1";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--text-muted)";
+              e.currentTarget.style.opacity = "0.4";
+            }}
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {project.logline && (
