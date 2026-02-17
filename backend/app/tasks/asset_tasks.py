@@ -65,9 +65,10 @@ def generate_scene_image(
             generate_image(prompt_visual, project_id, scene_id, sfx_text, identity_refs)
         )
 
-        # Update scene in DB and set status to REVIEW
-        run_async(_update_scene_path(scene_id, "local_image_path", rel_path))
-        run_async(_update_scene_status(scene_id, SceneStatus.REVIEW.value))
+        # Update scene in DB: path + status in one call
+        run_async(_update_scene_fields(
+            scene_id, local_image_path=rel_path, status=SceneStatus.REVIEW.value,
+        ))
         logger.info("Image generated for scene %s: %s", scene_id, rel_path)
 
         # Broadcast via Redis Pub/Sub
@@ -108,7 +109,6 @@ def generate_scene_video(
         logger.warning("Duplicate video request blocked for scene %s", scene_id)
         return {"scene_id": scene_id, "status": "duplicate_blocked"}
 
-    succeeded = False
     try:
         from app.services.video_gen import generate_video
 
@@ -130,19 +130,18 @@ def generate_scene_video(
 
         # Broadcast final status
         _publish_scene_update(project_id, scene_id, SceneStatus.READY.value)
-        succeeded = True
 
+        redis_client.delete(lock_key)  # Release lock on success
         return {"scene_id": scene_id, "video_path": rel_path}
 
     except Exception as exc:
         logger.error("Video generation failed for scene %s: %s", scene_id, exc)
         if self.request.retries >= self.max_retries:
             _mark_scene_error(scene_id, project_id, f"Video gen failed: {exc}")
+            redis_client.delete(lock_key)  # Release lock on final failure
             return {"scene_id": scene_id, "status": "error"}
+        # Keep lock held during retry to prevent duplicates
         raise self.retry(exc=exc)
-    finally:
-        # Always release lock — on success or before retry
-        redis_client.delete(lock_key)
 
 
 async def _update_scene_fields(scene_id: str, **kwargs) -> None:

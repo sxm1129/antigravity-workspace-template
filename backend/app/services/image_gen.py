@@ -385,22 +385,8 @@ def _save_image(image_data: bytes, project_id: str, scene_id: str) -> str:
     return f"{project_id}/images/{filename}"
 
 
-async def _download_image(url: str, project_id: str, scene_id: str) -> str:
-    """Download image from URL, stream to disk."""
-    dir_path = os.path.join(settings.MEDIA_VOLUME, project_id, "images")
-    os.makedirs(dir_path, exist_ok=True)
 
-    filename = f"{scene_id}.png"
-    filepath = os.path.join(dir_path, filename)
 
-    async with _get_http_client(timeout=60.0) as client:
-        async with client.stream("GET", url) as response:
-            response.raise_for_status()
-            with open(filepath, "wb") as f:
-                async for chunk in response.aiter_bytes(chunk_size=8192):
-                    f.write(chunk)
-
-    return f"{project_id}/images/{filename}"
 
 
 def _mock_image(project_id: str, scene_id: str, prompt: str) -> str:

@@ -13,8 +13,21 @@ logger = logging.getLogger(__name__)
 
 @shared_task
 def mark_scene_reviewable(results, scene_id: str, project_id: str):
-    """Chord callback: mark a scene as REVIEW when audio + image are both done."""
+    """Chord callback: mark a scene as REVIEW when audio + image are both done.
+
+    If any sub-task returned an error result, skip — the scene stays in ERROR.
+    """
     from app.services.pubsub import publish_scene_update
+
+    # Check if any sub-task failed
+    if isinstance(results, list):
+        for r in results:
+            if isinstance(r, dict) and r.get("status") == "error":
+                logger.warning(
+                    "Scene %s has failed sub-task, skipping REVIEW: %s",
+                    scene_id, r,
+                )
+                return scene_id
 
     logger.info("Scene %s assets complete, marking REVIEW", scene_id)
     run_async(_update_scene_status(scene_id, SceneStatus.REVIEW.value))
@@ -27,9 +40,27 @@ def mark_scene_reviewable(results, scene_id: str, project_id: str):
 
 @shared_task
 def compose_after_all_videos(results, project_id: str):
-    """Chord callback: compose final video after all scene videos are ready."""
+    """Chord callback: compose final video after all scene videos are ready.
+
+    If any scene video failed, skip compose and log a warning.
+    """
     from app.services.pubsub import publish_project_update
     from app.models.project import ProjectStatus
+
+    # Check if any video generation failed
+    failed = []
+    if isinstance(results, list):
+        for r in results:
+            if isinstance(r, dict) and r.get("status") in ("error", "duplicate_blocked"):
+                failed.append(r.get("scene_id", "unknown"))
+
+    if failed:
+        logger.warning(
+            "Project %s has %d failed scene videos, skipping compose: %s",
+            project_id, len(failed), failed,
+        )
+        publish_project_update(project_id, "COMPOSE_BLOCKED")
+        return {"project_id": project_id, "status": "blocked", "failed_scenes": failed}
 
     logger.info("All videos ready for project %s, starting compose", project_id)
 
