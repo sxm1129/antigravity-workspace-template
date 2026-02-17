@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     ARK_VIDEO_MODEL: str = "doubao-seedance-1-0-lite-i2v-250428"
     ARK_ENDPOINT: str = "https://ark.cn-beijing.volces.com/api/v3"
 
+    # --- DashScope / Alibaba Bailian (Video Generation) ---
+    DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_VIDEO_MODEL: str = "wanx2.1-kf2v-plus"
+    DASHSCOPE_ENDPOINT: str = "https://dashscope.aliyuncs.com/api/v1"
+
     # --- Legacy keys (kept for backward compat) ---
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-pro"

@@ -64,15 +64,29 @@ class VideoGenService(BaseGenService[str]):
         )
 
     async def _fallback(self, **kwargs: Any) -> str:
-        """Fallback to Remotion image-to-video with cinematic Ken Burns effect.
+        """Fallback chain: DashScope AI → Remotion animation → FFmpeg basic."""
+        scene_id = kwargs["scene_id"]
 
-        If Remotion fails, falls back to FFmpeg as ultimate fallback.
-        """
-        logger.info("video_gen: using Remotion fallback for scene=%s", kwargs["scene_id"][:8])
+        # Try DashScope AI video generation first
+        if settings.DASHSCOPE_API_KEY:
+            logger.info("video_gen fallback: trying DashScope I2V for scene=%s", scene_id[:8])
+            try:
+                return await _dashscope_image_to_video(
+                    kwargs.get("prompt_motion", ""),
+                    kwargs["project_id"],
+                    scene_id,
+                    kwargs["local_image_path"],
+                    kwargs.get("local_audio_path"),
+                )
+            except Exception as exc:
+                logger.warning("DashScope fallback failed (%s), trying Remotion", exc)
+
+        # Remotion cinematic animation
+        logger.info("video_gen fallback: using Remotion for scene=%s", scene_id[:8])
         try:
             return _remotion_image_to_video(
                 kwargs["project_id"],
-                kwargs["scene_id"],
+                scene_id,
                 kwargs["local_image_path"],
                 kwargs.get("local_audio_path"),
                 kwargs.get("prompt_motion", ""),
@@ -81,7 +95,7 @@ class VideoGenService(BaseGenService[str]):
             logger.warning("Remotion fallback failed (%s), using FFmpeg", exc)
             return _ffmpeg_image_to_video(
                 kwargs["project_id"],
-                kwargs["scene_id"],
+                scene_id,
                 kwargs["local_image_path"],
                 kwargs.get("local_audio_path"),
             )
@@ -143,9 +157,21 @@ async def _generate_video_core(
     if settings.USE_MOCK_API:
         return _mock_video(project_id, scene_id)
 
-    # Fallback to Remotion I2V if no ARK_API_KEY
+    # Fallback chain when no ARK_API_KEY:
+    # DashScope wanx (AI) → Remotion (animation) → FFmpeg (basic)
     if not settings.ARK_API_KEY:
-        logger.warning("No ARK_API_KEY set, using Remotion image-to-video fallback")
+        # Try DashScope AI video generation
+        if settings.DASHSCOPE_API_KEY:
+            logger.info("No ARK_API_KEY, trying DashScope wanx I2V for scene=%s", scene_id[:8])
+            try:
+                return await _dashscope_image_to_video(
+                    prompt_motion, project_id, scene_id, local_image_path, local_audio_path,
+                )
+            except Exception as exc:
+                logger.warning("DashScope I2V failed (%s), falling back to Remotion", exc)
+
+        # Remotion cinematic Ken Burns
+        logger.info("Using Remotion image-to-video fallback for scene=%s", scene_id[:8])
         try:
             return _remotion_image_to_video(
                 project_id, scene_id, local_image_path, local_audio_path, prompt_motion
@@ -285,6 +311,100 @@ async def _download_video(url: str, project_id: str, scene_id: str) -> str:
 
     return f"{project_id}/videos/{filename}"
 
+
+# ── DashScope wanx2.1-kf2v-plus (Key-Frame to Video) ──
+
+async def _dashscope_image_to_video(
+    prompt_motion: str,
+    project_id: str,
+    scene_id: str,
+    local_image_path: str,
+    local_audio_path: str | None = None,
+) -> str:
+    """Generate video from image using Alibaba DashScope wanx2.1-kf2v-plus.
+
+    Async task pattern:
+    1. POST /services/aigc/image2video/video-synthesis  →  task_id
+    2. GET  /tasks/{task_id}  →  poll until COMPLETED
+    3. Download result video
+    """
+    image_full_path = os.path.join(settings.MEDIA_VOLUME, local_image_path)
+    with open(image_full_path, "rb") as f:
+        image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    image_data_url = f"data:image/png;base64,{image_b64}"
+
+    # Build request payload
+    payload = {
+        "model": settings.DASHSCOPE_VIDEO_MODEL,
+        "input": {
+            "first_frame_url": image_data_url,
+            "prompt": prompt_motion or "缓慢推进，柔和的光线变化，电影质感画面",
+        },
+        "parameters": {
+            "resolution": "720P",
+            "prompt_extend": True,
+        },
+    }
+
+    headers = {
+        "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+        "Content-Type": "application/json",
+        "X-DashScope-Async": "enable",
+    }
+
+    endpoint = settings.DASHSCOPE_ENDPOINT
+    create_url = f"{endpoint}/services/aigc/image2video/video-synthesis"
+
+    logger.info(
+        "DashScope I2V: creating task for scene=%s model=%s",
+        scene_id[:8], settings.DASHSCOPE_VIDEO_MODEL,
+    )
+
+    client = _get_http_client(timeout=60.0)
+
+    # Step 1: Create async task
+    resp = await client.post(create_url, json=payload, headers=headers)
+    resp.raise_for_status()
+    result = resp.json()
+
+    task_id = result.get("output", {}).get("task_id")
+    if not task_id:
+        raise RuntimeError(f"DashScope: no task_id in response: {result}")
+
+    logger.info("DashScope I2V: task created task_id=%s", task_id)
+
+    # Step 2: Poll for completion
+    poll_url = f"{endpoint}/tasks/{task_id}"
+    poll_headers = {"Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}"}
+
+    timeout_seconds = 300
+    interval_seconds = 8
+    elapsed = 0
+
+    while elapsed < timeout_seconds:
+        await asyncio.sleep(interval_seconds)
+        elapsed += interval_seconds
+
+        poll_resp = await client.get(poll_url, headers=poll_headers)
+        poll_resp.raise_for_status()
+        poll_data = poll_resp.json()
+
+        task_status = poll_data.get("output", {}).get("task_status", "UNKNOWN")
+        logger.debug("DashScope I2V: poll task_id=%s status=%s elapsed=%ds", task_id, task_status, elapsed)
+
+        if task_status == "SUCCEEDED":
+            video_url = poll_data.get("output", {}).get("video_url")
+            if not video_url:
+                raise RuntimeError(f"DashScope: SUCCEEDED but no video_url: {poll_data}")
+            logger.info("DashScope I2V: task succeeded, downloading video")
+            return await _download_video(video_url, project_id, scene_id)
+
+        if task_status in ("FAILED", "CANCELLED"):
+            error_msg = poll_data.get("output", {}).get("message", "Unknown error")
+            raise RuntimeError(f"DashScope task {task_status}: {error_msg}")
+
+    raise RuntimeError(f"DashScope I2V: timeout after {timeout_seconds}s for task={task_id}")
 
 def _mock_video(project_id: str, scene_id: str) -> str:
     """Generate a mock video file (5-second color bars via FFmpeg or fallback)."""
