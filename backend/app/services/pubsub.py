@@ -52,6 +52,17 @@ def publish_project_update(project_id: str, status: str) -> None:
     })
 
 
+def publish_compose_progress(project_id: str, rendered: int, total: int) -> None:
+    """Publish compose render progress from a Celery worker (sync context)."""
+    percent = round(rendered / total * 100) if total > 0 else 0
+    _publish_sync(project_id, {
+        "type": "compose_progress",
+        "rendered": rendered,
+        "total": total,
+        "percent": percent,
+    })
+
+
 def _publish_sync(project_id: str, message: dict[str, Any]) -> None:
     """Publish a message to the Redis channel for a project (sync, for Celery).
 

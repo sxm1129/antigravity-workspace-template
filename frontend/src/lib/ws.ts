@@ -10,9 +10,12 @@ const WS_BASE =
   .replace("https://", "wss://");
 
 export interface WSMessage {
-  type: "scene_update" | "project_update" | "task_progress" | "pong";
+  type: "scene_update" | "project_update" | "compose_progress" | "task_progress" | "pong";
   scene_id?: string;
   status?: string;
+  rendered?: number;
+  total?: number;
+  percent?: number;
   data?: Record<string, unknown>;
 }
 

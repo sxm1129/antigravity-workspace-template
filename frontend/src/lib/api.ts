@@ -442,10 +442,9 @@ export const systemApi = {
     }),
 
   celeryPing: () =>
-    fetcher<unknown>("/api/system/status").then((r) => {
-      const celery = (r as Record<string, unknown>).celery as CeleryStatus | undefined;
-      return celery?.status === "ok";
-    }),
+    fetcher<{ online: boolean; worker_count: number }>("/api/system/celery/ping").then(
+      (r) => r.online
+    ),
 
   celeryStart: () =>
     fetcher<CeleryStartResult>("/api/system/celery/start", { method: "POST" }),

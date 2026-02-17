@@ -11,8 +11,8 @@ from app.tasks import run_async
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, max_retries=1)
-def compose_project_video(self, project_id: str):
+@shared_task
+def compose_project_video(project_id: str):
     """Compose all READY scene videos into a final output for the project.
 
     Uses the configured compose provider (ffmpeg or remotion) via Strategy Pattern.
@@ -32,11 +32,26 @@ def compose_project_video(self, project_id: str):
         from app.services.base_compose_service import get_compose_service
 
         service = get_compose_service()
+
+        # Throttled progress callback — broadcast to WS every 5%
+        last_pct = [-1]  # mutable container for closure
+
+        def _on_progress(rendered: int, total: int) -> None:
+            pct = round(rendered / total * 100) if total > 0 else 0
+            if pct - last_pct[0] >= 5 or pct >= 100:
+                last_pct[0] = pct
+                try:
+                    from app.services.pubsub import publish_compose_progress
+                    publish_compose_progress(project_id, rendered, total)
+                except Exception:
+                    pass
+
         result = service.compose(
             project_id,
             scene_data_list,
             title=project_meta.get("title", ""),
             style=project_meta.get("style_preset", "default"),
+            on_progress=_on_progress,
         )
 
         # Update project status to COMPLETED and save final video path
@@ -57,7 +72,14 @@ def compose_project_video(self, project_id: str):
 
     except Exception as exc:
         logger.error("Video composition failed for project %s: %s", project_id, exc)
-        raise self.retry(exc=exc)
+        # Roll back status to PRODUCTION so user can inspect and retry
+        try:
+            run_async(_update_project_status(project_id, ProjectStatus.PRODUCTION.value))
+            run_async(_broadcast_project_update(project_id, ProjectStatus.PRODUCTION.value))
+            logger.info("Project %s rolled back to PRODUCTION after compose failure", project_id)
+        except Exception as rollback_err:
+            logger.error("Failed to rollback project %s status: %s", project_id, rollback_err)
+        return {"project_id": project_id, "status": "failed", "error": str(exc)}
 
 
 async def _get_scene_data(project_id: str) -> list:

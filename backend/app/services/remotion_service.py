@@ -31,6 +31,7 @@ class RemotionComposeService(BaseComposeService):
         self._remotion_dir = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "..", settings.REMOTION_PROJECT_PATH)
         )
+        self._media_volume = os.path.abspath(settings.MEDIA_VOLUME)
         # Verify remotion project exists
         pkg_json = os.path.join(self._remotion_dir, "package.json")
         if not os.path.exists(pkg_json):
@@ -38,6 +39,76 @@ class RemotionComposeService(BaseComposeService):
                 f"Remotion project not found at {self._remotion_dir}. "
                 f"Expected package.json at {pkg_json}"
             )
+        # Auto-create symlink: remotion/public/media → media_volume
+        self._ensure_media_symlink()
+
+    def _ensure_media_symlink(self) -> None:
+        """Ensure public/media symlink points to media_volume."""
+        public_media = os.path.join(self._remotion_dir, "public", "media")
+        if os.path.islink(public_media):
+            if os.readlink(public_media) == self._media_volume:
+                return  # Already correct
+            os.remove(public_media)
+        elif os.path.exists(public_media):
+            logger.warning("public/media exists but is not a symlink; skipping")
+            return
+        os.symlink(self._media_volume, public_media)
+        logger.info("Created symlink: %s → %s", public_media, self._media_volume)
+
+    def _validate_assets(self, scenes: list[SceneData]) -> None:
+        """Pre-flight check: verify all asset files exist on disk."""
+        missing = []
+        for s in scenes:
+            video_abs = os.path.join(self._media_volume, s.video_path)
+            if not os.path.isfile(video_abs):
+                missing.append(f"scene {s.id}: video {s.video_path}")
+            if s.audio_path:
+                audio_abs = os.path.join(self._media_volume, s.audio_path)
+                if not os.path.isfile(audio_abs):
+                    missing.append(f"scene {s.id}: audio {s.audio_path}")
+        if missing:
+            detail = "\n  ".join(missing)
+            raise FileNotFoundError(
+                f"Asset pre-validation failed — {len(missing)} file(s) missing:\n  {detail}"
+            )
+        logger.info("Asset pre-validation passed: %d scenes, all files exist", len(scenes))
+
+    def _stage_assets(self, project_id: str, scenes: list[SceneData]) -> str:
+        """Hardlink scene assets into remotion/public/ for rendering.
+
+        Returns the staging dir path. Caller MUST clean up via _cleanup_staged().
+        Uses hardlinks (instant, zero disk overhead) with copy fallback.
+        """
+        stage_dir = os.path.join(self._remotion_dir, "public", project_id)
+        os.makedirs(stage_dir, exist_ok=True)
+
+        staged_files = set()
+        for s in scenes:
+            for rel_path in [s.video_path, s.audio_path]:
+                if not rel_path:
+                    continue
+                src = os.path.join(self._media_volume, rel_path)
+                dst = os.path.join(self._remotion_dir, "public", rel_path)
+                if dst in staged_files or os.path.exists(dst):
+                    continue
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                try:
+                    os.link(src, dst)  # hardlink — instant, no extra disk
+                except OSError:
+                    import shutil
+                    shutil.copy2(src, dst)  # fallback for cross-device
+                staged_files.add(dst)
+
+        logger.info("Staged %d assets into public/%s", len(staged_files), project_id)
+        return stage_dir
+
+    def _cleanup_staged(self, project_id: str) -> None:
+        """Remove staged assets from remotion/public/ after render."""
+        stage_dir = os.path.join(self._remotion_dir, "public", project_id)
+        if os.path.isdir(stage_dir):
+            import shutil
+            shutil.rmtree(stage_dir, ignore_errors=True)
+            logger.info("Cleaned up staged assets in public/%s", project_id)
 
     def compose(
         self,
@@ -48,65 +119,103 @@ class RemotionComposeService(BaseComposeService):
         episode_title: str | None = None,
         bgm_path: str | None = None,
         style: str = "default",
+        on_progress: Any | None = None,
     ) -> ComposeResult:
-        """Render via `npx remotion render ComicDrama`."""
+        """Render via `npx remotion render ComicDrama`.
+
+        Args:
+            on_progress: Optional callback ``(rendered: int, total: int) -> None``
+                         called each time Remotion reports frame progress.
+        """
+        import re
+
         if not scenes:
             raise ValueError("No scenes to compose")
 
-        # Build input props (local paths for CLI render)
-        props = self._build_props(
-            project_id, scenes,
-            title=title, episode_title=episode_title,
-            bgm_path=bgm_path, style=style,
-            for_preview=False,
-        )
+        # Pre-flight: verify all assets exist
+        self._validate_assets(scenes)
 
-        # Write props to file
-        output_dir = os.path.join(settings.MEDIA_VOLUME, project_id)
-        os.makedirs(output_dir, exist_ok=True)
-        props_path = os.path.join(output_dir, "input_props.json")
-        output_path = os.path.join(output_dir, "final_output.mp4")
+        # Stage assets into remotion/public/ via hardlinks
+        self._stage_assets(project_id, scenes)
 
-        with open(props_path, "w", encoding="utf-8") as f:
-            json.dump(props, f, ensure_ascii=False, indent=2)
+        try:
+            # Build input props (paths relative to public/)
+            props = self._build_props(
+                project_id, scenes,
+                title=title, episode_title=episode_title,
+                bgm_path=bgm_path, style=style,
+                for_preview=False,
+            )
 
-        # Invoke Remotion CLI
-        cmd = [
-            "npx", "remotion", "render",
-            "ComicDrama",
-            "--props", os.path.abspath(props_path),
-            "--output", os.path.abspath(output_path),
-            "--codec", "h264",
-            "--concurrency", "2",  # limit parallel frame renders
-        ]
+            # Write props to file
+            output_dir = os.path.join(settings.MEDIA_VOLUME, project_id)
+            os.makedirs(output_dir, exist_ok=True)
+            props_path = os.path.join(output_dir, "input_props.json")
+            output_path = os.path.join(output_dir, "final_output.mp4")
 
-        logger.info(
-            "Remotion render: project=%s, scenes=%d, cmd=%s",
-            project_id, len(scenes), " ".join(cmd),
-        )
+            with open(props_path, "w", encoding="utf-8") as f:
+                json.dump(props, f, ensure_ascii=False, indent=2)
 
-        result = subprocess.run(
-            cmd,
-            cwd=self._remotion_dir,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 min max
-        )
+            # Invoke Remotion CLI with streaming stderr for progress
+            cmd = [
+                "npx", "remotion", "render",
+                "ComicDrama",
+                "--props", os.path.abspath(props_path),
+                "--output", os.path.abspath(output_path),
+                "--codec", "h264",
+                "--concurrency", "2",
+            ]
 
-        if result.returncode != 0:
-            error_tail = result.stderr[-1000:] if result.stderr else "no stderr"
-            logger.error("Remotion render failed: %s", error_tail)
-            raise RuntimeError(f"Remotion render failed: {error_tail}")
+            logger.info(
+                "Remotion render: project=%s, scenes=%d, cmd=%s",
+                project_id, len(scenes), " ".join(cmd),
+            )
 
-        rel_output = f"{project_id}/final_output.mp4"
-        logger.info("Remotion render complete: %s", rel_output)
+            # Stream subprocess for real-time progress
+            progress_re = re.compile(r"Rendered\s+(\d+)/(\d+)")
+            stderr_lines: list[str] = []
 
-        return ComposeResult(
-            output_path=rel_output,
-            provider=self.provider_name,
-            duration_seconds=sum(s.duration_seconds for s in scenes),
-            metadata={"props_path": props_path},
-        )
+            process = subprocess.Popen(
+                cmd,
+                cwd=self._remotion_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            try:
+                assert process.stderr is not None
+                for line in process.stderr:
+                    line = line.rstrip()
+                    stderr_lines.append(line)
+                    # Parse "Rendered 5/144" or similar
+                    m = progress_re.search(line)
+                    if m and on_progress:
+                        rendered, total = int(m.group(1)), int(m.group(2))
+                        on_progress(rendered, total)
+
+                process.wait(timeout=600)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                raise RuntimeError("Remotion render timed out after 600s")
+
+            if process.returncode != 0:
+                error_tail = "\n".join(stderr_lines[-20:])
+                logger.error("Remotion render failed: %s", error_tail)
+                raise RuntimeError(f"Remotion render failed: {error_tail}")
+
+            rel_output = f"{project_id}/final_output.mp4"
+            logger.info("Remotion render complete: %s", rel_output)
+
+            return ComposeResult(
+                output_path=rel_output,
+                provider=self.provider_name,
+                duration_seconds=sum(s.duration_seconds for s in scenes),
+                metadata={"props_path": props_path},
+            )
+        finally:
+            # Always clean up staged assets
+            self._cleanup_staged(project_id)
 
     def supports_preview(self) -> bool:
         return True
@@ -151,15 +260,16 @@ class RemotionComposeService(BaseComposeService):
         def _resolve_path(relative_path: str) -> str:
             """Resolve asset path based on context (browser vs local).
 
-            Both CLI render and browser preview use Remotion's built-in
-            dev server which serves static files from its `public/` directory.
-            We have a symlink: remotion/public/media → backend/media_volume,
-            so `/media/{relative_path}` is accessible by Remotion's Chromium.
+            - Preview: `/media/{path}` — relative URL, served by FastAPI
+            - CLI render: `http://localhost:9001/media/{path}` — absolute URL
+              from the already-running FastAPI server. This is the most robust
+              approach: Chromium in Remotion can fetch HTTP URLs reliably,
+              avoiding filesystem/symlink/webpack bundler complexities.
             """
             if for_preview:
                 return f"/media/{relative_path}"
-            # CLI render also runs via Remotion's bundler → same dev server
-            return f"/media/{relative_path}"
+            # CLI render: full HTTP URL from FastAPI's media endpoint
+            return f"http://localhost:9001/media/{relative_path}"
 
         scene_props = []
         for s in scenes:

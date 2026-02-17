@@ -79,14 +79,21 @@ export function useCeleryGuard() {
   }, [doStart]);
 
   const ensureWorker = useCallback(async (): Promise<boolean> => {
-    try {
-      const isOnline = await systemApi.celeryPing();
-      if (isOnline) return true;
-    } catch {
-      // If status check fails, assume offline
+    // Attempt ping with 1 retry to avoid false positives from busy workers
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const isOnline = await systemApi.celeryPing();
+        if (isOnline) return true;
+      } catch {
+        // Network or timeout error — will retry
+      }
+      if (attempt === 0) {
+        // Wait before retry
+        await new Promise((r) => setTimeout(r, 800));
+      }
     }
 
-    // Worker offline — show dialog with countdown
+    // Worker confirmed offline after 2 attempts — show dialog with countdown
     return new Promise<boolean>((resolve) => {
       resolveRef.current = resolve;
       setShowDialog(true);

@@ -1,20 +1,20 @@
 "use client";
 
-import { type Project, assetApi, mediaUrl } from "@/lib/api";
+import { type Project, type Episode, episodeApi, mediaUrl } from "@/lib/api";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useToastStore } from "@/stores/useToastStore";
-import SceneCard from "@/components/SceneCard";
-import { useCeleryGuard } from "@/components/CeleryGuard";
-import { useEffect, useState, useRef } from "react";
 import { connectProjectWS, type WSMessage } from "@/lib/ws";
+import { useCeleryGuard } from "@/components/CeleryGuard";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useRef } from "react";
 
 const PHASE_ACTIONS: Record<string, { label: string; description: string }> = {
   STORYBOARD: {
-    label: "生成全部素材",
-    description: "AI 将为每个镜头生成语音、图片素材。",
+    label: "生成全部画面",
+    description: "审核通过的镜头将自动触发视频生成。全部完成后可合成最终视频。",
   },
   PRODUCTION: {
-    label: "已审核的镜头 → 生成视频",
+    label: "进入生产",
     description: "审核通过的镜头将自动触发视频生成。全部完成后可合成最终视频。",
   },
   COMPOSING: {
@@ -27,33 +27,51 @@ const PHASE_ACTIONS: Record<string, { label: string; description: string }> = {
   },
 };
 
+const STATUS_STYLES: Record<string, { label: string; color: string; bg: string }> = {
+  DRAFT:          { label: "草稿",   color: "#94a3b8", bg: "rgba(148,163,184,0.12)" },
+  OUTLINE_REVIEW: { label: "大纲审核", color: "#60a5fa", bg: "rgba(96,165,250,0.12)" },
+  SCRIPT_REVIEW:  { label: "剧本审核", color: "#818cf8", bg: "rgba(129,140,248,0.12)" },
+  STORYBOARD:     { label: "分镜",   color: "#a78bfa", bg: "rgba(167,139,250,0.12)" },
+  PRODUCTION:     { label: "制作中", color: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
+  COMPOSING:      { label: "合成中", color: "#8b5cf6", bg: "rgba(139,92,246,0.12)" },
+  COMPLETED:      { label: "已完成", color: "#10b981", bg: "rgba(16,185,129,0.12)" },
+};
+
 export default function KanbanBoard({ project }: { project: Project }) {
   const {
-    scenes,
-    generateAllImages,
     composeFinal,
-    updateSceneLocally,
     refreshCurrentProject,
     loading,
   } = useProjectStore();
   const addToast = useToastStore((s) => s.addToast);
   const { ensureWorker, guardDialog } = useCeleryGuard();
+  const router = useRouter();
+
+  const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [loadingEpisodes, setLoadingEpisodes] = useState(true);
+
+  // Fetch episodes
+  useEffect(() => {
+    setLoadingEpisodes(true);
+    episodeApi.list(project.id).then((eps) => {
+      setEpisodes(eps.sort((a, b) => a.episode_number - b.episode_number));
+      setLoadingEpisodes(false);
+    }).catch(() => setLoadingEpisodes(false));
+  }, [project.id]);
 
   // WebSocket for real-time updates
   useEffect(() => {
     const conn = connectProjectWS(project.id, (msg: WSMessage) => {
-      if (msg.type === "scene_update" && msg.scene_id && msg.status) {
-        updateSceneLocally(msg.scene_id, { status: msg.status });
-        if (["REVIEW", "READY", "audio_done"].includes(msg.status)) {
-          refreshCurrentProject();
-        }
-      }
       if (msg.type === "project_update") {
         refreshCurrentProject();
+        // Refresh episode list too
+        episodeApi.list(project.id).then((eps) => {
+          setEpisodes(eps.sort((a, b) => a.episode_number - b.episode_number));
+        });
       }
     });
     return () => conn.close();
-  }, [project.id, updateSceneLocally, refreshCurrentProject]);
+  }, [project.id, refreshCurrentProject]);
 
   const phase = PHASE_ACTIONS[project.status];
   const isComposing = project.status === "COMPOSING";
@@ -79,49 +97,18 @@ export default function KanbanBoard({ project }: { project: Project }) {
     };
   }, [isComposing]);
 
-  // Auto-refresh when composing
-  useEffect(() => {
-    if (!isComposing) return;
-    const interval = setInterval(() => {
-      refreshCurrentProject();
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [isComposing, refreshCurrentProject]);
-
   const handlePhaseAction = async () => {
-    // Pre-flight: ensure Celery worker is running
-    if (!(await ensureWorker())) return;
-
-    if (project.status === "STORYBOARD") {
-      await generateAllImages(project.id);
-    } else if (project.status === "PRODUCTION" || project.status === "COMPOSING") {
-      await composeFinal(project.id);
-    }
-  };
-
-  const approvedCount = scenes.filter((s) =>
-    ["APPROVED", "VIDEO_GEN", "READY"].includes(s.status)
-  ).length;
-
-  const readyCount = scenes.filter((s) => s.status === "READY").length;
-  const reviewCount = scenes.filter((s) => s.status === "REVIEW").length;
-
-  const handleBatchApprove = async () => {
-    const reviewSceneIds = scenes
-      .filter((s) => s.status === "REVIEW")
-      .map((s) => s.id);
-    if (reviewSceneIds.length === 0) {
-      addToast("info", "没有待审核的场景");
-      return;
-    }
+    if (!await ensureWorker()) return;
     try {
-      const result = await assetApi.batchApprove(reviewSceneIds);
-      addToast("success", `已批量审核 ${result.approved} 个场景`);
-      refreshCurrentProject();
-    } catch (err: unknown) {
-      addToast("error", err instanceof Error ? err.message : "批量审核失败");
+      await composeFinal(project.id);
+      addToast("success", "合成任务已提交");
+    } catch {
+      addToast("error", "操作失败");
     }
   };
+
+  const totalScenes = episodes.reduce((sum, ep) => sum + (ep.scenes_count || 0), 0);
+  const completedEpisodes = episodes.filter((ep) => ep.status === "COMPLETED").length;
 
   const finalVideoUrl = project.final_video_path
     ? mediaUrl(project.final_video_path)
@@ -130,6 +117,7 @@ export default function KanbanBoard({ project }: { project: Project }) {
   return (
     <div style={{ padding: "24px" }}>
       {guardDialog}
+
       {/* Phase Header */}
       {phase && (
         <div
@@ -147,40 +135,19 @@ export default function KanbanBoard({ project }: { project: Project }) {
               {phase.description}
             </p>
             <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
-              <span>总镜头: {scenes.length}</span>
+              <span>剧集: {episodes.length}</span>
               <span>|</span>
-              <span>已审核: {approvedCount}</span>
+              <span>总镜头: {totalScenes}</span>
               <span>|</span>
-              <span>就绪: {readyCount}</span>
+              <span>已完成: {completedEpisodes}/{episodes.length}</span>
             </div>
           </div>
-          {project.status !== "COMPLETED" && project.status !== "PRODUCTION" && project.status !== "COMPOSING" && (
+          {project.status === "PRODUCTION" && (
             <button
               className="btn-primary"
               onClick={handlePhaseAction}
               disabled={loading}
-              style={{ flexShrink: 0, marginLeft: 24 }}
-            >
-              {loading ? <span className="spinner" /> : null}
-              {phase.label}
-            </button>
-          )}
-          {project.status === "PRODUCTION" && reviewCount > 0 && (
-            <button
-              className="btn-primary"
-              onClick={handleBatchApprove}
-              disabled={loading}
-              style={{ flexShrink: 0, marginLeft: 12, background: "linear-gradient(135deg, #10b981, #059669)" }}
-            >
-              全部审核 ({reviewCount})
-            </button>
-          )}
-          {project.status === "PRODUCTION" && readyCount > 0 && readyCount === scenes.length && (
-            <button
-              className="btn-primary"
-              onClick={handlePhaseAction}
-              disabled={loading}
-              style={{ flexShrink: 0, marginLeft: 12, background: "linear-gradient(135deg, #f59e0b, #d97706)" }}
+              style={{ flexShrink: 0, marginLeft: 24, background: "linear-gradient(135deg, #f59e0b, #d97706)" }}
             >
               {loading ? <span className="spinner" /> : null}
               🎞 合成最终视频
@@ -215,64 +182,32 @@ export default function KanbanBoard({ project }: { project: Project }) {
           }}>
             <span style={{ fontSize: 28 }}>🎬</span>
           </div>
-          <h3 style={{
-            fontSize: 18,
-            fontWeight: 700,
-            color: "var(--text-primary)",
-            marginBottom: 8,
-          }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>
             正在合成最终视频...
           </h3>
-          <p style={{
-            fontSize: 13,
-            color: "var(--text-secondary)",
-            marginBottom: 16,
-          }}>
-            正在拼接 {scenes.length} 个镜头片段，添加转场效果
+          <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
+            正在拼接镜头片段，添加转场效果
           </p>
-
-          {/* Progress bar animation */}
           <div style={{
-            width: "100%",
-            maxWidth: 400,
-            height: 4,
-            borderRadius: 2,
-            background: "rgba(255,255,255,0.08)",
-            margin: "0 auto 14px",
-            overflow: "hidden",
+            width: "100%", maxWidth: 400, height: 4, borderRadius: 2,
+            background: "rgba(255,255,255,0.08)", margin: "0 auto 14px", overflow: "hidden",
           }}>
             <div style={{
-              width: "100%",
-              height: "100%",
+              width: "100%", height: "100%",
               background: "linear-gradient(90deg, #6366f1, #8b5cf6, #6366f1)",
-              borderRadius: 2,
-              animation: "composeProgress 2s ease-in-out infinite",
+              borderRadius: 2, animation: "composeProgress 2s ease-in-out infinite",
             }} />
           </div>
-
-          <div style={{
-            display: "flex",
-            justifyContent: "center",
-            gap: 24,
-            fontSize: 12,
-            color: "var(--text-muted)",
-          }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 24, fontSize: 12, color: "var(--text-muted)" }}>
             <span>已用时: <b style={{ color: "var(--text-secondary)" }}>
               {Math.floor(composeElapsed / 60)}:{String(composeElapsed % 60).padStart(2, "0")}
             </b></span>
-            <span>镜头数: <b style={{ color: "var(--text-secondary)" }}>{scenes.length}</b></span>
           </div>
-
-          <style>{`
-            @keyframes composeProgress {
-              0% { transform: translateX(-100%); }
-              100% { transform: translateX(100%); }
-            }
-          `}</style>
+          <style>{`@keyframes composeProgress { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }`}</style>
         </div>
       )}
 
-      {/* Final Video Section — show for COMPLETED projects */}
+      {/* Final Video Section */}
       {project.status === "COMPLETED" && (
         <div
           className="glass-panel"
@@ -303,16 +238,10 @@ export default function KanbanBoard({ project }: { project: Project }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
-                      padding: "10px 20px",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "#fff",
+                      padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff",
                       background: "linear-gradient(135deg, var(--accent-primary), #6045d6)",
-                      borderRadius: "var(--radius-sm)",
-                      textDecoration: "none",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
+                      borderRadius: "var(--radius-sm)", textDecoration: "none",
+                      display: "inline-flex", alignItems: "center", gap: 6,
                     }}
                   >
                     ▶ 在线预览
@@ -321,17 +250,10 @@ export default function KanbanBoard({ project }: { project: Project }) {
                     href={finalVideoUrl}
                     download
                     style={{
-                      padding: "10px 20px",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "var(--text-primary)",
-                      background: "rgba(255,255,255,0.08)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--radius-sm)",
-                      textDecoration: "none",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
+                      padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+                      background: "rgba(255,255,255,0.08)", border: "1px solid var(--border)",
+                      borderRadius: "var(--radius-sm)", textDecoration: "none",
+                      display: "inline-flex", alignItems: "center", gap: 6,
                     }}
                   >
                     ⬇ 下载视频
@@ -350,7 +272,6 @@ export default function KanbanBoard({ project }: { project: Project }) {
               )}
             </div>
           </div>
-          {/* Preview player if video exists */}
           {finalVideoUrl && (
             <div style={{ marginTop: 16, borderRadius: "var(--radius-md)", overflow: "hidden" }}>
               <video
@@ -363,29 +284,98 @@ export default function KanbanBoard({ project }: { project: Project }) {
         </div>
       )}
 
-      {/* Scene Grid — simple grid without dnd-kit to avoid render crash */}
-      {scenes.length > 0 ? (
+      {/* Episode Cards Grid */}
+      {loadingEpisodes ? (
+        <div style={{ display: "flex", justifyContent: "center", padding: 60 }}>
+          <div className="spinner" style={{ width: 28, height: 28 }} />
+        </div>
+      ) : episodes.length > 0 ? (
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
             gap: 16,
           }}
         >
-          {scenes.map((scene, i) => (
-            <SceneCard key={scene.id} scene={scene} index={i} />
-          ))}
+          {episodes.map((ep) => {
+            const st = STATUS_STYLES[ep.status] || STATUS_STYLES.DRAFT;
+            return (
+              <div
+                key={ep.id}
+                onClick={() => router.push(`/project/${project.id}/episode/${ep.id}`)}
+                className="glass-panel"
+                style={{
+                  padding: "20px 22px",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                  borderLeft: `3px solid ${st.color}`,
+                  position: "relative",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)";
+                  (e.currentTarget as HTMLElement).style.boxShadow = "0 8px 24px rgba(0,0,0,0.3)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.transform = "translateY(0)";
+                  (e.currentTarget as HTMLElement).style.boxShadow = "";
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, letterSpacing: 1,
+                    color: "var(--text-muted)", textTransform: "uppercase",
+                  }}>
+                    第 {ep.episode_number} 集
+                  </span>
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, padding: "3px 10px",
+                    borderRadius: 20, color: st.color, background: st.bg,
+                  }}>
+                    {st.label}
+                  </span>
+                </div>
+
+                {/* Title */}
+                <h4 style={{
+                  fontSize: 15, fontWeight: 600, color: "var(--text-primary)",
+                  marginBottom: 8, lineHeight: 1.4,
+                }}>
+                  {ep.title}
+                </h4>
+
+                {/* Synopsis */}
+                {ep.synopsis && (
+                  <p style={{
+                    fontSize: 12, color: "var(--text-muted)",
+                    lineHeight: 1.5, marginBottom: 12,
+                    overflow: "hidden", textOverflow: "ellipsis",
+                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                  }}>
+                    {ep.synopsis}
+                  </p>
+                )}
+
+                {/* Footer stats */}
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 14,
+                  fontSize: 12, color: "var(--text-muted)",
+                  borderTop: "1px solid rgba(255,255,255,0.06)",
+                  paddingTop: 10, marginTop: 4,
+                }}>
+                  <span>🎬 {ep.scenes_count ?? 0} 镜头</span>
+                  {ep.final_video_path && (
+                    <span style={{ color: "#10b981" }}>✅ 已合成</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
-        <div
-          style={{
-            textAlign: "center",
-            padding: 80,
-            color: "var(--text-muted)",
-          }}
-        >
+        <div style={{ textAlign: "center", padding: 80, color: "var(--text-muted)" }}>
           <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>🎬</div>
-          <p style={{ fontSize: 14 }}>暂无分镜, 请先在编剧模式完成剧本解析</p>
+          <p style={{ fontSize: 14 }}>暂无剧集, 请先在编剧模式完成剧本</p>
         </div>
       )}
     </div>

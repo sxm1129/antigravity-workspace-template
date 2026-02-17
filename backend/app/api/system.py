@@ -174,6 +174,23 @@ def _check_celery_queue() -> dict[str, Any]:
         }
 
 
+@router.get("/celery/ping")
+def celery_ping():
+    """Lightweight Celery worker availability check (fast path).
+
+    Only pings workers with 1s timeout — no active/reserved/registered queries.
+    Used by frontend CeleryGuard to avoid false-positive 'offline' detection.
+    """
+    try:
+        inspector = celery_app.control.inspect(timeout=1)
+        ping_result = inspector.ping()
+        if ping_result and len(ping_result) > 0:
+            return {"online": True, "worker_count": len(ping_result)}
+        return {"online": False, "worker_count": 0}
+    except Exception:
+        return {"online": False, "worker_count": 0}
+
+
 @router.post("/celery/start")
 async def start_celery_worker():
     """Start a Celery worker process."""

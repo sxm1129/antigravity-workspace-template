@@ -179,6 +179,9 @@ function EpisodeKanbanContent({
   const { generateAllImages, composeFinal, updateSceneLocally, loading } = useProjectStore();
   const addToast = useToastStore((s) => s.addToast);
   const { ensureWorker, guardDialog } = useCeleryGuard();
+  const [composeProgress, setComposeProgress] = useState<{
+    rendered: number; total: number; percent: number;
+  } | null>(null);
 
   const phase = EPISODE_PHASE_ACTIONS[episode.status];
 
@@ -197,7 +200,15 @@ function EpisodeKanbanContent({
           episodeApi.get(episode.id).then(onEpisodeUpdate);
         }
       }
+      if (msg.type === "compose_progress" && msg.rendered != null && msg.total != null) {
+        setComposeProgress({
+          rendered: msg.rendered,
+          total: msg.total,
+          percent: msg.percent ?? 0,
+        });
+      }
       if (msg.type === "project_update") {
+        setComposeProgress(null); // Reset progress on status change
         episodeApi.get(episode.id).then(onEpisodeUpdate);
         episodeApi.listScenes(episode.id).then(onScenesUpdate);
       }
@@ -311,14 +322,43 @@ function EpisodeKanbanContent({
               </button>
             )}
             {episode.status === "COMPOSING" && (
-              <button
-                className="btn-primary"
-                onClick={handlePhaseAction}
-                disabled={loading}
-              >
-                {loading ? <span className="spinner" /> : null}
-                🎞 合成最终视频
-              </button>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 12,
+                minWidth: 280,
+              }}>
+                <div style={{
+                  flex: 1, height: 24, borderRadius: 12,
+                  background: "rgba(255,255,255,0.08)",
+                  overflow: "hidden", position: "relative",
+                }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${composeProgress?.percent ?? 0}%`,
+                      background: "linear-gradient(90deg, #f59e0b, #ef4444, #8b5cf6)",
+                      borderRadius: 12,
+                      transition: "width 0.6s ease-out",
+                      position: "relative",
+                    }}
+                  >
+                    {/* Shimmer animation */}
+                    <div style={{
+                      position: "absolute", inset: 0, borderRadius: 12,
+                      background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)",
+                      animation: "shimmer 1.5s infinite",
+                    }} />
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: 12, fontWeight: 600, color: "var(--text-secondary)",
+                  whiteSpace: "nowrap", minWidth: 80, textAlign: "right",
+                }}>
+                  {composeProgress
+                    ? `${composeProgress.percent}% (${composeProgress.rendered}/${composeProgress.total})`
+                    : "准备中..."}
+                </span>
+                <style>{`@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }`}</style>
+              </div>
             )}
           </div>
         </div>
