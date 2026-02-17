@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, useRef, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useToastStore } from "@/stores/useToastStore";
@@ -203,18 +203,27 @@ function EpisodeKanbanContent({
   const phase = EPISODE_PHASE_ACTIONS[episode.status];
 
   // ── WebSocket for real-time scene updates ──
+  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debouncedRefetch = useCallback(() => {
+    if (refetchTimer.current) clearTimeout(refetchTimer.current);
+    refetchTimer.current = setTimeout(() => {
+      episodeApi.listScenes(episode.id).then(onScenesUpdate);
+      episodeApi.get(episode.id).then(onEpisodeUpdate);
+    }, 500);
+  }, [episode.id, onScenesUpdate, onEpisodeUpdate]);
+
   useEffect(() => {
     const conn = connectProjectWS(project.id, (msg: WSMessage) => {
       if (msg.type === "scene_update" && msg.scene_id && msg.status) {
-        // Update the scene locally in our episode-scoped list
+        // Local-only update: avoids full re-render from API re-fetch
         onScenesUpdate(
           scenes.map((s) => s.id === msg.scene_id ? { ...s, status: msg.status! } : s)
         );
         updateSceneLocally(msg.scene_id, { status: msg.status });
-        // Re-fetch scenes on significant status changes
+        // Debounced re-fetch for significant status changes
         if (["REVIEW", "READY", "audio_done"].includes(msg.status)) {
-          episodeApi.listScenes(episode.id).then(onScenesUpdate);
-          episodeApi.get(episode.id).then(onEpisodeUpdate);
+          debouncedRefetch();
         }
       }
       if (msg.type === "compose_progress" && msg.rendered != null && msg.total != null) {
@@ -225,12 +234,14 @@ function EpisodeKanbanContent({
         });
       }
       if (msg.type === "project_update") {
-        setComposeProgress(null); // Reset progress on status change
-        episodeApi.get(episode.id).then(onEpisodeUpdate);
-        episodeApi.listScenes(episode.id).then(onScenesUpdate);
+        setComposeProgress(null);
+        debouncedRefetch();
       }
     });
-    return () => conn.close();
+    return () => {
+      conn.close();
+      if (refetchTimer.current) clearTimeout(refetchTimer.current);
+    };
   }, [project.id, episode.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Elapsed timer while composing — gives visual feedback even without WS progress
