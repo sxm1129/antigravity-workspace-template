@@ -149,13 +149,17 @@ class RemotionComposeService(BaseComposeService):
         fps = 24
 
         def _resolve_path(relative_path: str) -> str:
-            """Resolve asset path based on context (browser vs local)."""
+            """Resolve asset path based on context (browser vs local).
+
+            Both CLI render and browser preview use Remotion's built-in
+            dev server which serves static files from its `public/` directory.
+            We have a symlink: remotion/public/media → backend/media_volume,
+            so `/media/{relative_path}` is accessible by Remotion's Chromium.
+            """
             if for_preview:
                 return f"/media/{relative_path}"
-            abs_path = os.path.join(settings.MEDIA_VOLUME, relative_path)
-            if not os.path.isabs(abs_path):
-                abs_path = os.path.abspath(abs_path)
-            return abs_path
+            # CLI render also runs via Remotion's bundler → same dev server
+            return f"/media/{relative_path}"
 
         scene_props = []
         for s in scenes:
