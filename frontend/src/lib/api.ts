@@ -39,6 +39,7 @@ export interface Scene {
   local_image_path: string | null;
   local_video_path: string | null;
   status: string;
+  error_message: string | null;
 }
 
 export interface Episode {
@@ -390,6 +391,12 @@ export const assetApi = {
 
   getTtsVoices: () =>
     fetcher<{ id: string; label: string; lang: string }[]>("/api/assets/tts-voices"),
+
+  resetScenes: (sceneIds: string[]) =>
+    fetcher<{ reset: number }>("/api/assets/reset-scenes", {
+      method: "POST",
+      body: JSON.stringify({ scene_ids: sceneIds }),
+    }),
 };
 
 // ──────── Quick Draft API ────────

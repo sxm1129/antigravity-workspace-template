@@ -42,6 +42,9 @@ def generate_scene_audio(self, scene_id: str, project_id: str, dialogue_text: st
 
     except Exception as exc:
         logger.error("Audio generation failed for scene %s: %s", scene_id, exc)
+        if self.request.retries >= self.max_retries:
+            _mark_scene_error(scene_id, project_id, f"TTS failed: {exc}")
+            return {"scene_id": scene_id, "status": "error"}
         raise self.retry(exc=exc)
 
 
@@ -74,6 +77,9 @@ def generate_scene_image(
 
     except Exception as exc:
         logger.error("Image generation failed for scene %s: %s", scene_id, exc)
+        if self.request.retries >= self.max_retries:
+            _mark_scene_error(scene_id, project_id, f"Image gen failed: {exc}")
+            return {"scene_id": scene_id, "status": "error"}
         raise self.retry(exc=exc)
 
 
@@ -130,6 +136,9 @@ def generate_scene_video(
 
     except Exception as exc:
         logger.error("Video generation failed for scene %s: %s", scene_id, exc)
+        if self.request.retries >= self.max_retries:
+            _mark_scene_error(scene_id, project_id, f"Video gen failed: {exc}")
+            return {"scene_id": scene_id, "status": "error"}
         raise self.retry(exc=exc)
     finally:
         # Always release lock — on success or before retry
@@ -190,3 +199,19 @@ def _publish_scene_update(project_id: str, scene_id: str, status: str) -> None:
     except Exception:
         # Best-effort, never fail the task
         pass
+
+
+def _mark_scene_error(scene_id: str, project_id: str, error_msg: str) -> None:
+    """Mark a scene as ERROR with an error message — called on final task failure."""
+    try:
+        truncated = str(error_msg)[:500]
+        run_async(_update_scene_fields(
+            scene_id,
+            status=SceneStatus.ERROR.value,
+            error_message=truncated,
+        ))
+        _publish_scene_update(project_id, scene_id, SceneStatus.ERROR.value)
+        logger.warning("Scene %s marked as ERROR: %s", scene_id, truncated[:100])
+    except Exception as err:
+        logger.error("Failed to mark scene %s as ERROR: %s", scene_id, err)
+

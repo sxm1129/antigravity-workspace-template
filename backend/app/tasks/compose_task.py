@@ -79,6 +79,8 @@ def compose_project_video(project_id: str, episode_id: str | None = None):
         # Roll back status to PRODUCTION so user can inspect and retry
         try:
             run_async(_update_project_status(project_id, ProjectStatus.PRODUCTION.value))
+            if episode_id:
+                run_async(_update_episode_status(episode_id, "PRODUCTION"))
             run_async(_broadcast_project_update(project_id, ProjectStatus.PRODUCTION.value))
             logger.info("Project %s rolled back to PRODUCTION after compose failure", project_id)
         except Exception as rollback_err:

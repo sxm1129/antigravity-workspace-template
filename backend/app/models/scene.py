@@ -21,6 +21,7 @@ class SceneStatus(str, enum.Enum):
     APPROVED = "APPROVED"
     VIDEO_GEN = "VIDEO_GEN"
     READY = "READY"
+    ERROR = "ERROR"
 
 
 class Scene(Base):
@@ -77,6 +78,9 @@ class Scene(Base):
     # Scene status
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default=SceneStatus.PENDING.value
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
     )
 
     # Timestamps

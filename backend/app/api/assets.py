@@ -103,10 +103,10 @@ async def generate_all_scene_images(
         if episode.project_id != req.project_id:
             raise HTTPException(status_code=400, detail="Episode does not belong to this project")
 
-    # Get pending scenes (filtered by episode if provided)
+    # Get pending + error scenes (filtered by episode if provided)
     scene_query = select(Scene).where(
         Scene.project_id == req.project_id,
-        Scene.status == SceneStatus.PENDING.value,
+        Scene.status.in_([SceneStatus.PENDING.value, SceneStatus.ERROR.value]),
     )
     if req.episode_id:
         scene_query = scene_query.where(Scene.episode_id == req.episode_id)
@@ -114,7 +114,7 @@ async def generate_all_scene_images(
     scenes = result.scalars().all()
 
     if not scenes:
-        raise HTTPException(status_code=400, detail="No pending scenes to generate")
+        raise HTTPException(status_code=400, detail="No pending/error scenes to generate")
 
     # Get character identity refs for this project
     char_result = await db.execute(
@@ -138,9 +138,10 @@ async def generate_all_scene_images(
         for s in scenes
     ]
 
-    # Update scenes to GENERATING
+    # Update scenes to GENERATING and clear any error
     for s in scenes:
         s.status = SceneStatus.GENERATING.value
+        s.error_message = None
 
     # Only set project status to PRODUCTION if it's currently STORYBOARD (legacy).
     # Don't downgrade IN_PRODUCTION to PRODUCTION.
@@ -415,12 +416,15 @@ async def retry_video_gen(req: RetryVideoGenRequest, db: AsyncSession = Depends(
         scene = all_scenes.get(scene_id)
         if not scene:
             continue
-        if scene.status not in (SceneStatus.APPROVED.value, SceneStatus.VIDEO_GEN.value):
+        if scene.status not in (
+            SceneStatus.APPROVED.value, SceneStatus.VIDEO_GEN.value, SceneStatus.ERROR.value
+        ):
             continue
         if not scene.local_image_path:
             continue
 
         scene.status = SceneStatus.APPROVED.value  # Reset to APPROVED for re-dispatch
+        scene.error_message = None  # Clear error
         dispatch.append({
             "scene_id": scene.id,
             "project_id": scene.project_id,
@@ -445,3 +449,39 @@ async def retry_video_gen(req: RetryVideoGenRequest, db: AsyncSession = Depends(
         tasks.append({"scene_id": sd["scene_id"], "task_id": task.id})
 
     return {"retried": len(dispatch), "video_tasks": tasks}
+
+
+class ResetScenesRequest(BaseModel):
+    scene_ids: list[str]
+
+
+@router.post("/reset-scenes")
+async def reset_stuck_scenes(req: ResetScenesRequest, db: AsyncSession = Depends(get_db)):
+    """Reset stuck/error scenes back to PENDING so they can be re-generated.
+
+    Accepts scenes in GENERATING, VIDEO_GEN, or ERROR status.
+    """
+    result = await db.execute(
+        select(Scene).where(Scene.id.in_(req.scene_ids))
+    )
+    all_scenes = {s.id: s for s in result.scalars().all()}
+
+    RESETTABLE = {
+        SceneStatus.GENERATING.value,
+        SceneStatus.VIDEO_GEN.value,
+        SceneStatus.ERROR.value,
+    }
+
+    reset_count = 0
+    for scene_id in req.scene_ids:
+        scene = all_scenes.get(scene_id)
+        if not scene or scene.status not in RESETTABLE:
+            continue
+        scene.status = SceneStatus.PENDING.value
+        scene.error_message = None
+        reset_count += 1
+
+    await db.flush()
+
+    return {"reset": reset_count}
+

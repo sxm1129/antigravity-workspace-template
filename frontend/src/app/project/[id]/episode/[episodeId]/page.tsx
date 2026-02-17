@@ -255,6 +255,7 @@ function EpisodeKanbanContent({
     ["APPROVED", "VIDEO_GEN", "READY"].includes(s.status)
   ).length;
   const readyCount = scenes.filter((s) => s.status === "READY").length;
+  const errorCount = scenes.filter((s) => s.status === "ERROR").length;
 
   const handleBatchApprove = async () => {
     const reviewSceneIds = scenes
@@ -303,6 +304,12 @@ function EpisodeKanbanContent({
               <span>已审核: {approvedCount}</span>
               <span>|</span>
               <span>就绪: {readyCount}</span>
+              {errorCount > 0 && (
+                <>
+                  <span>|</span>
+                  <span style={{ color: "var(--accent-danger)" }}>出错: {errorCount}</span>
+                </>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexShrink: 0, marginLeft: 24 }}>

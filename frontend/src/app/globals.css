@@ -206,6 +206,7 @@ body {
 .badge-approval { background: rgba(255,166,77,0.12); color: var(--accent-warning); }
 .badge-rendering { background: rgba(255,100,200,0.12); color: #ff80d0; }
 .badge-completed { background: rgba(0,212,170,0.15); color: var(--accent-success); }
+.badge-error { background: rgba(255,92,92,0.15); color: var(--accent-danger); }
 
 /* ── Pulse animation ── */
 @keyframes pulse-glow {

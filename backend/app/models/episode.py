@@ -31,7 +31,7 @@ EPISODE_VALID_TRANSITIONS: dict[EpisodeStatus, set[EpisodeStatus]] = {
     EpisodeStatus.STORYBOARD: {EpisodeStatus.PRODUCTION, EpisodeStatus.SCRIPT_REVIEW},
     EpisodeStatus.PRODUCTION: {EpisodeStatus.COMPOSING, EpisodeStatus.STORYBOARD},
     EpisodeStatus.COMPOSING: {EpisodeStatus.COMPLETED, EpisodeStatus.PRODUCTION},
-    EpisodeStatus.COMPLETED: {EpisodeStatus.SCRIPT_REVIEW},
+    EpisodeStatus.COMPLETED: {EpisodeStatus.SCRIPT_REVIEW, EpisodeStatus.COMPOSING},
 }
 
 

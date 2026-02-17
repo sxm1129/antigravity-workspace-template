@@ -1,6 +1,6 @@
 "use client";
 
-import { type Scene, mediaUrl } from "@/lib/api";
+import { type Scene, mediaUrl, assetApi } from "@/lib/api";
 import { useProjectStore } from "@/stores/useProjectStore";
 
 const SCENE_STATUS: Record<string, { label: string; cls: string }> = {
@@ -10,10 +10,11 @@ const SCENE_STATUS: Record<string, { label: string; cls: string }> = {
   APPROVED: { label: "已审核", cls: "badge-completed" },
   VIDEO_GEN: { label: "视频生成中", cls: "badge-generating" },
   READY: { label: "就绪", cls: "badge-ready" },
+  ERROR: { label: "出错", cls: "badge-error" },
 };
 
 export default function SceneCard({ scene, index }: { scene: Scene; index: number }) {
-  const { approveScene, regenerateImage } = useProjectStore();
+  const { approveScene, regenerateImage, updateSceneLocally } = useProjectStore();
   const status = SCENE_STATUS[scene.status] || { label: scene.status, cls: "badge-ideation" };
 
   const imgSrc = mediaUrl(scene.local_image_path);
@@ -167,6 +168,45 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
           }}>
             <span className="spinner" style={{ width: 14, height: 14 }} />
             {scene.status === "GENERATING" ? "素材生成中..." : "视频生成中..."}
+          </div>
+        )}
+
+        {/* ERROR state — show error message and retry button */}
+        {scene.status === "ERROR" && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{
+              padding: "8px 10px",
+              background: "rgba(255,92,92,0.1)",
+              border: "1px solid rgba(255,92,92,0.2)",
+              borderRadius: 6,
+              fontSize: 11,
+              color: "#ff5c5c",
+              lineHeight: 1.5,
+              marginBottom: 8,
+              wordBreak: "break-word",
+            }}>
+              {scene.error_message
+                ? (scene.error_message.length > 120
+                    ? scene.error_message.slice(0, 120) + "..."
+                    : scene.error_message)
+                : "生成失败，请重试"}
+            </div>
+            <button
+              className="btn-primary"
+              onClick={async (e) => {
+                e.stopPropagation();
+                await assetApi.resetScenes([scene.id]);
+                // Optimistically update locally
+                updateSceneLocally(scene.id, { status: "PENDING", error_message: null });
+              }}
+              style={{
+                width: "100%", justifyContent: "center",
+                padding: "8px 12px", fontSize: 12,
+                background: "linear-gradient(135deg, #ef4444, #dc2626)",
+              }}
+            >
+              ↻ 重置并重试
+            </button>
           </div>
         )}
       </div>
