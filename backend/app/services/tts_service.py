@@ -18,11 +18,18 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# Regex to strip speaker prefix like "齐齐:" "爸爸：" "Narrator:" etc.
-# Matches: optional whitespace, name (Chinese chars / letters / digits),
-# followed by colon (full-width or half-width), then optional whitespace.
+# Regex to strip speaker / stage-direction prefixes from dialogue text.
+# Handles patterns like:
+#   "齐齐: ..."           → simple name + colon
+#   "(旁白) 齐大山：..."   → parenthetical tag + name + colon
+#   "（独白）齐齐：..."    → full-width parens + name + colon
+#   "(旁白)：..."          → tag only + colon
+#   "旁白：..."            → bare tag + colon
 _SPEAKER_PREFIX_RE = re.compile(
-    r"^\s*[\u4e00-\u9fff\w]{1,10}\s*[：:]\s*"
+    r"^\s*"
+    r"(?:[（(][^)）]{1,10}[)）]\s*)?"   # optional parenthetical tag like (旁白)
+    r"[\u4e00-\u9fff\w]{1,10}"          # name (Chinese chars / letters / digits)
+    r"\s*[：:]\s*"                       # colon (full-width or half-width)
 )
 
 # Module-level httpx client for connection reuse (lazy init)
@@ -30,12 +37,13 @@ _http_client: httpx.AsyncClient | None = None
 
 
 def strip_speaker_prefix(text: str) -> str:
-    """Strip character name prefix from dialogue text for TTS.
+    """Strip character name / stage-direction prefix from dialogue text for TTS.
 
     Examples:
         '齐齐: 你好啊' → '你好啊'
-        '爸爸：我们去海边吧' → '我们去海边吧'
-        'Narrator: Once upon a time' → 'Once upon a time'
+        '(旁白) 齐大山：我曾为了...' → '我曾为了...'
+        '（独白）齐齐：好美的海...' → '好美的海...'
+        '旁白：从前有一个...' → '从前有一个...'
         '普通句子' → '普通句子'  (no change)
     """
     return _SPEAKER_PREFIX_RE.sub("", text).strip()
