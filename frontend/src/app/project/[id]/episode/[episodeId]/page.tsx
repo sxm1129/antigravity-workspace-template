@@ -182,6 +182,7 @@ function EpisodeKanbanContent({
   const [composeProgress, setComposeProgress] = useState<{
     rendered: number; total: number; percent: number;
   } | null>(null);
+  const [composeElapsed, setComposeElapsed] = useState(0);
   const [ttsVoices, setTtsVoices] = useState<{ id: string; label: string; lang: string }[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string>(project.tts_voice || "en_female_midnight");
 
@@ -231,6 +232,17 @@ function EpisodeKanbanContent({
     });
     return () => conn.close();
   }, [project.id, episode.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Elapsed timer while composing — gives visual feedback even without WS progress
+  useEffect(() => {
+    if (episode.status !== "COMPOSING") {
+      setComposeElapsed(0);
+      return;
+    }
+    setComposeElapsed(0);
+    const t = setInterval(() => setComposeElapsed((e) => e + 1), 1000);
+    return () => clearInterval(t);
+  }, [episode.status]);
 
   const handlePhaseAction = async () => {
     // Pre-flight: ensure Celery worker is running
@@ -433,7 +445,15 @@ function EpisodeKanbanContent({
                 }}>
                   {composeProgress
                     ? `${composeProgress.percent}% (${composeProgress.rendered}/${composeProgress.total})`
-                    : "准备中..."}
+                    : (() => {
+                        const m = Math.floor(composeElapsed / 60);
+                        const s = composeElapsed % 60;
+                        const ts = `${m}:${s.toString().padStart(2, "0")}`;
+                        const stage = composeElapsed < 10 ? "准备资产"
+                          : composeElapsed < 30 ? "渲染帧"
+                          : "合成中";
+                        return `${stage}... (${ts})`;
+                      })()}
                 </span>
                 <button
                   className="btn-secondary"

@@ -156,7 +156,7 @@ class RemotionComposeService(BaseComposeService):
             with open(props_path, "w", encoding="utf-8") as f:
                 json.dump(props, f, ensure_ascii=False, indent=2)
 
-            # Invoke Remotion CLI with streaming stderr for progress
+            # Invoke Remotion CLI with streaming output for progress
             cmd = [
                 "npx", "remotion", "render",
                 "ComicDrama",
@@ -164,6 +164,7 @@ class RemotionComposeService(BaseComposeService):
                 "--output", os.path.abspath(output_path),
                 "--codec", "h264",
                 "--concurrency", "2",
+                "--log=verbose",
             ]
 
             logger.info(
@@ -171,28 +172,51 @@ class RemotionComposeService(BaseComposeService):
                 project_id, len(scenes), " ".join(cmd),
             )
 
-            # Stream subprocess for real-time progress
-            progress_re = re.compile(r"Rendered\s+(\d+)/(\d+)")
-            stderr_lines: list[str] = []
+            # Remotion v4 writes progress via stdout using \r carriage returns.
+            # We merge stdout+stderr and read character-by-character so we can
+            # split on both \r and \n to capture progress lines.
+            progress_patterns = [
+                re.compile(r"(\d+)\s+out\s+of\s+(\d+)\s+frames"),  # "5 out of 144 frames"
+                re.compile(r"Rendered?\s+(\d+)/(\d+)"),             # "Rendered 5/144"
+                re.compile(r"\((\d+)/(\d+)\)"),                     # "(5/144)"
+                re.compile(r"frame\s+(\d+)/(\d+)", re.IGNORECASE),  # "frame 5/144"
+                re.compile(r"Stitching.*?(\d+)%"),                  # "Stitching ... 50%"
+            ]
+            output_lines: list[str] = []
 
             process = subprocess.Popen(
                 cmd,
                 cwd=self._remotion_dir,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # merge stderr into stdout
                 text=True,
             )
 
             try:
-                assert process.stderr is not None
-                for line in process.stderr:
-                    line = line.rstrip()
-                    stderr_lines.append(line)
-                    # Parse "Rendered 5/144" or similar
-                    m = progress_re.search(line)
-                    if m and on_progress:
-                        rendered, total = int(m.group(1)), int(m.group(2))
-                        on_progress(rendered, total)
+                assert process.stdout is not None
+                buf = ""
+                for ch in iter(lambda: process.stdout.read(1), ""):
+                    if ch in ("\r", "\n"):
+                        line = buf.strip()
+                        if line:
+                            output_lines.append(line)
+                            # Try each pattern in priority order
+                            for i, pat in enumerate(progress_patterns):
+                                m = pat.search(line)
+                                if m and on_progress:
+                                    if i == 4:  # Stitching percentage
+                                        pct = int(m.group(1))
+                                        on_progress(pct, 100)
+                                    else:
+                                        rendered, total = int(m.group(1)), int(m.group(2))
+                                        on_progress(rendered, total)
+                                    break
+                        buf = ""
+                    else:
+                        buf += ch
+                # Handle any remaining buffer
+                if buf.strip():
+                    output_lines.append(buf.strip())
 
                 process.wait(timeout=600)
             except subprocess.TimeoutExpired:
@@ -200,7 +224,7 @@ class RemotionComposeService(BaseComposeService):
                 raise RuntimeError("Remotion render timed out after 600s")
 
             if process.returncode != 0:
-                error_tail = "\n".join(stderr_lines[-20:])
+                error_tail = "\n".join(output_lines[-20:])
                 logger.error("Remotion render failed: %s", error_tail)
                 raise RuntimeError(f"Remotion render failed: {error_tail}")
 
