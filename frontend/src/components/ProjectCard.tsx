@@ -3,6 +3,7 @@
 import { type Project } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { useProjectStore } from "@/stores/useProjectStore";
+import { useConfirmStore } from "@/stores/useConfirmStore";
 
 const STATUS_MAP: Record<string, { label: string; cls: string }> = {
   DRAFT: { label: "草稿", cls: "badge-ideation" },
@@ -17,16 +18,24 @@ const STATUS_MAP: Record<string, { label: string; cls: string }> = {
 export default function ProjectCard({ project }: { project: Project }) {
   const router = useRouter();
   const { deleteProject } = useProjectStore();
+  const showConfirm = useConfirmStore((s) => s.showConfirm);
   const status = STATUS_MAP[project.status] || { label: project.status, cls: "badge-ideation" };
 
-  const handleDelete = async (e: React.MouseEvent) => {
+  const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`确认删除项目「${project.title}」?\n此操作不可撤销，项目下所有剧集、场景、资产将一并删除。`)) return;
-    try {
-      await deleteProject(project.id);
-    } catch {
-      // handled by store
-    }
+    showConfirm({
+      title: "删除项目",
+      message: `确认删除项目「${project.title}」？此操作不可撤销，项目下所有剧集、场景、资产将一并删除。`,
+      variant: "danger",
+      confirmText: "删除",
+      onConfirm: async () => {
+        try {
+          await deleteProject(project.id);
+        } catch {
+          // handled by store
+        }
+      },
+    });
   };
 
   return (

@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback, use, type Dispatch, type SetS
 import { useRouter } from "next/navigation";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useToastStore } from "@/stores/useToastStore";
+import { useConfirmStore } from "@/stores/useConfirmStore";
 import { episodeApi, assetApi, projectApi, mediaUrl, type Episode, type Scene } from "@/lib/api";
 import { connectProjectWS, type WSMessage } from "@/lib/ws";
 import SceneCard from "@/components/SceneCard";
@@ -178,6 +179,7 @@ function EpisodeKanbanContent({
 }) {
   const { generateAllImages, composeFinal, loading } = useProjectStore();
   const addToast = useToastStore((s) => s.addToast);
+  const showConfirm = useConfirmStore((s) => s.showConfirm);
   const { ensureWorker, guardDialog } = useCeleryGuard();
 
   /** Patch a single scene in the episode's local state (for optimistic UI). */
@@ -398,15 +400,22 @@ function EpisodeKanbanContent({
                 className="btn-secondary"
                 onClick={async () => {
                   if (!(await ensureWorker())) return;
-                  if (!confirm("确定要重新生成本集全部素材吗？已有素材将被覆盖。")) return;
-                  await generateAllImages(project.id, episode.id, true);
-                  addToast("success", "已触发全部素材重新生成");
-                  const [updatedEp, updatedScenes] = await Promise.all([
-                    episodeApi.get(episode.id),
-                    episodeApi.listScenes(episode.id),
-                  ]);
-                  onEpisodeUpdate(updatedEp);
-                  onScenesUpdate(updatedScenes);
+                  showConfirm({
+                    title: "重新生成全部素材",
+                    message: "确定要重新生成本集全部素材吗？已有素材将被覆盖。",
+                    variant: "warning",
+                    confirmText: "重新生成",
+                    onConfirm: async () => {
+                      await generateAllImages(project.id, episode.id, true);
+                      addToast("success", "已触发全部素材重新生成");
+                      const [updatedEp, updatedScenes] = await Promise.all([
+                        episodeApi.get(episode.id),
+                        episodeApi.listScenes(episode.id),
+                      ]);
+                      onEpisodeUpdate(updatedEp);
+                      onScenesUpdate(updatedScenes);
+                    },
+                  });
                 }}
                 disabled={loading}
                 style={{ fontSize: 13, padding: "8px 16px" }}
