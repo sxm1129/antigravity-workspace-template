@@ -62,7 +62,11 @@ export default function KanbanBoard({ project }: { project: Project }) {
   // WebSocket for real-time updates
   useEffect(() => {
     const conn = connectProjectWS(project.id, (msg: WSMessage) => {
-      if (msg.type === "project_update") {
+      if (msg.type === "project_update"
+        || msg.status === "episode_completed"
+        || msg.status === "episode_rollback"
+        || msg.status === "compose_empty"
+      ) {
         refreshCurrentProject();
         // Refresh episode list too
         episodeApi.list(project.id).then((eps) => {
@@ -262,7 +266,15 @@ export default function KanbanBoard({ project }: { project: Project }) {
               ) : (
                 <button
                   className="btn-primary"
-                  onClick={() => composeFinal(project.id)}
+                  onClick={async () => {
+                    if (!await ensureWorker()) return;
+                    try {
+                      await composeFinal(project.id);
+                      addToast("success", "合成任务已提交");
+                    } catch {
+                      addToast("error", "合成失败");
+                    }
+                  }}
                   disabled={loading}
                   style={{ flexShrink: 0 }}
                 >

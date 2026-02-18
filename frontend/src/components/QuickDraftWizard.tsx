@@ -77,7 +77,7 @@ export default function QuickDraftWizard({ open, onClose }: QuickDraftWizardProp
 
   if (!open) return null;
 
-  const pct = progress ? Math.round((progress.current / progress.total) * 100) : 0;
+  const pct = progress && progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
 
   return (
     <div

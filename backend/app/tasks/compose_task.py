@@ -24,6 +24,15 @@ def compose_project_video(project_id: str, episode_id: str | None = None):
 
         if not scene_data_list:
             logger.warning("No scene videos found for project %s", project_id)
+            # Roll back status so user isn't stuck in COMPOSING
+            try:
+                if episode_id:
+                    run_async(_update_episode_status(episode_id, "PRODUCTION"))
+                else:
+                    run_async(_update_project_status(project_id, ProjectStatus.PRODUCTION.value))
+                _broadcast_project_update(project_id, "compose_empty")
+            except Exception as rollback_err:
+                logger.error("Failed to rollback after empty compose for project %s: %s", project_id, rollback_err)
             return {"project_id": project_id, "status": "no_videos"}
 
         # Get project metadata for title card
