@@ -76,7 +76,7 @@ def _recover_stuck_scenes():
         engine = create_engine(url, pool_pre_ping=True)
 
         transitions = [
-            ("VIDEO_GEN", "REVIEW"),
+            ("VIDEO_GEN", "APPROVED"),
             ("IMAGE_GEN", "PENDING"),
             ("AUDIO_GEN", "PENDING"),
             ("GENERATING", "PENDING"),
@@ -95,14 +95,39 @@ def _recover_stuck_scenes():
                         result.rowcount, from_status, to_status,
                     )
                     total_reset += result.rowcount
+
+            # --- Recover stuck episodes (COMPOSING → PRODUCTION) ---
+            result = conn.execute(
+                text("UPDATE episodes SET status=:to_st WHERE status=:from_st"),
+                {"to_st": "PRODUCTION", "from_st": "COMPOSING"},
+            )
+            if result.rowcount > 0:
+                logger.warning(
+                    "Startup recovery: reset %d episode(s) COMPOSING → PRODUCTION",
+                    result.rowcount,
+                )
+                total_reset += result.rowcount
+
+            # --- Recover stuck projects (COMPOSING → PRODUCTION) ---
+            result = conn.execute(
+                text("UPDATE projects SET status=:to_st WHERE status=:from_st"),
+                {"to_st": "PRODUCTION", "from_st": "COMPOSING"},
+            )
+            if result.rowcount > 0:
+                logger.warning(
+                    "Startup recovery: reset %d project(s) COMPOSING → PRODUCTION",
+                    result.rowcount,
+                )
+                total_reset += result.rowcount
+
             conn.commit()
 
         engine.dispose()
 
         if total_reset > 0:
-            logger.info("Startup recovery: %d scene(s) recovered total", total_reset)
+            logger.info("Startup recovery: %d item(s) recovered total", total_reset)
         else:
-            logger.info("Startup recovery: no stuck scenes found")
+            logger.info("Startup recovery: no stuck items found")
 
     except Exception as e:
         logger.warning("Startup recovery failed (non-fatal): %s", e)

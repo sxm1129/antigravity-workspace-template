@@ -51,8 +51,14 @@ async def ws_project(ws: WebSocket, project_id: str):
         )
 
         # Keep connection alive — read client messages (pings, etc.)
+        # 120s idle timeout: if client silently disconnects (no TCP FIN),
+        # we detect it via timeout instead of hanging forever.
         while True:
-            data = await ws.receive_text()
+            try:
+                data = await asyncio.wait_for(ws.receive_text(), timeout=120.0)
+            except asyncio.TimeoutError:
+                logger.info("WS heartbeat timeout: project=%s", project_id)
+                break
             if data == "ping":
                 await ws.send_json({"type": "pong"})
     except WebSocketDisconnect:
