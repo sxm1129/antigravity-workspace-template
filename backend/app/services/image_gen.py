@@ -27,11 +27,11 @@ OPENROUTER_URL = f"{settings.OPENROUTER_BASE_URL}/chat/completions"
 _http_client: httpx.AsyncClient | None = None
 
 
-def _get_http_client() -> httpx.AsyncClient:
+def _get_http_client(timeout: float = 180.0) -> httpx.AsyncClient:
     """Return a module-level httpx.AsyncClient, creating it on first use."""
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient(timeout=180.0)
+        _http_client = httpx.AsyncClient(timeout=timeout)
     return _http_client
 
 IMAGE_SYSTEM_PROMPT = """你是一位专业的漫画/动漫插画师。请根据用户提供的详细画面描述，

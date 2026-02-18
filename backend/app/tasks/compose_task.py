@@ -54,19 +54,20 @@ def compose_project_video(project_id: str, episode_id: str | None = None):
             on_progress=_on_progress,
         )
 
-        # Update project status to COMPLETED and save final video path
-        run_async(_update_project_status(
-            project_id,
-            ProjectStatus.COMPLETED.value,
-            final_video_path=result.output_path,
-        ))
-
-        # Update episode status if episode-level compose
+        # Update status based on compose scope
         if episode_id:
+            # Episode-level compose: only update the episode, leave project status unchanged
             run_async(_update_episode_status(episode_id, "COMPLETED", result.output_path))
+        else:
+            # Project-level compose: update project status to COMPLETED
+            run_async(_update_project_status(
+                project_id,
+                ProjectStatus.COMPLETED.value,
+                final_video_path=result.output_path,
+            ))
 
         # Broadcast project completion via WebSocket
-        _broadcast_project_update(project_id, ProjectStatus.COMPLETED.value)
+        _broadcast_project_update(project_id, ProjectStatus.COMPLETED.value if not episode_id else "episode_completed")
 
         logger.info(
             "Project %s video composed via %s: %s",
@@ -76,11 +77,12 @@ def compose_project_video(project_id: str, episode_id: str | None = None):
 
     except Exception as exc:
         logger.error("Video composition failed for project %s: %s", project_id, exc)
-        # Roll back status to PRODUCTION so user can inspect and retry
+        # Roll back status so user can inspect and retry
         try:
-            run_async(_update_project_status(project_id, ProjectStatus.PRODUCTION.value))
             if episode_id:
                 run_async(_update_episode_status(episode_id, "PRODUCTION"))
+            else:
+                run_async(_update_project_status(project_id, ProjectStatus.PRODUCTION.value))
             _broadcast_project_update(project_id, ProjectStatus.PRODUCTION.value)
             logger.info("Project %s rolled back to PRODUCTION after compose failure", project_id)
         except Exception as rollback_err:

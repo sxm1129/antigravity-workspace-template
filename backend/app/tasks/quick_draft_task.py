@@ -72,8 +72,9 @@ def run_quick_draft(self, project_id: str, logline: str, style: str = "default")
                                   f"语音合成 {i+1}/{total_scenes}...")
                 try:
                     from app.services.tts_service import synthesize_speech
-                    audio_path = run_async(synthesize_speech(dialogue, project_id, sid))
+                    audio_path, audio_duration = run_async(synthesize_speech(dialogue, project_id, sid))
                     run_async(_update_scene_field(sid, "local_audio_path", audio_path))
+                    run_async(_update_scene_field(sid, "audio_duration", audio_duration))
                 except Exception as e:
                     logger.warning("TTS failed for scene %s: %s", sid, e)
 
