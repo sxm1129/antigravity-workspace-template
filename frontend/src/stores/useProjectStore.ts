@@ -441,7 +441,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     try {
       await assetApi.regenerateImage(sceneId);
       // Optimistically update scene status
-      get().updateSceneLocally(sceneId, { status: "GENERATING" });
+      get().updateSceneLocally(sceneId, { status: "GENERATING", error_message: null });
     } catch (e: unknown) {
       set({ error: (e as Error).message });
     }

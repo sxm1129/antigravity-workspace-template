@@ -44,7 +44,7 @@ async def generate_character_reference(
     )
 
     ref_path = await generate_image(
-        prompt=design_prompt,
+        prompt_visual=design_prompt,
         project_id=project_id,
         scene_id=f"char_ref_{character_id}",
         sfx_text=None,
