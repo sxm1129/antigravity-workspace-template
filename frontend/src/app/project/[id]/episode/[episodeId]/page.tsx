@@ -392,7 +392,7 @@ function EpisodeKanbanContent({
                 disabled={loading}
                 style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}
               >
-                全部审核 ({reviewCount})
+                ✅ 一键通过 ({reviewCount})
               </button>
             )}
             {episode.status === "PRODUCTION" && (
@@ -401,13 +401,13 @@ function EpisodeKanbanContent({
                 onClick={async () => {
                   if (!(await ensureWorker())) return;
                   showConfirm({
-                    title: "重新生成全部素材",
-                    message: "确定要重新生成本集全部素材吗？已有素材将被覆盖。",
+                    title: "重绘全部画面",
+                    message: "确定要重新生成本集全部画面和语音吗？已有素材将被覆盖。",
                     variant: "warning",
-                    confirmText: "重新生成",
+                    confirmText: "确认重绘",
                     onConfirm: async () => {
                       await generateAllImages(project.id, episode.id, true);
-                      addToast("success", "已触发全部素材重新生成");
+                      addToast("success", "已触发全部画面重绘");
                       const [updatedEp, updatedScenes] = await Promise.all([
                         episodeApi.get(episode.id),
                         episodeApi.listScenes(episode.id),
@@ -420,7 +420,7 @@ function EpisodeKanbanContent({
                 disabled={loading}
                 style={{ fontSize: 13, padding: "8px 16px" }}
               >
-                ↻ 重新生成全部
+                🔄 重绘全部画面
               </button>
             )}
             {episode.status === "PRODUCTION" && readyCount > 0 && readyCount === scenes.length && (
@@ -452,7 +452,7 @@ function EpisodeKanbanContent({
                         if (!(await ensureWorker())) return;
                         try {
                           await assetApi.retryVideoGen(stuckIds);
-                          addToast("success", `已重新触发 ${stuckIds.length} 个场景的视频生成`);
+                          addToast("success", `已重新触发 ${stuckIds.length} 个镜头的视频合成`);
                           const updatedScenes = await episodeApi.listScenes(episode.id);
                           onScenesUpdate(updatedScenes);
                         } catch (err: unknown) {
@@ -462,7 +462,7 @@ function EpisodeKanbanContent({
                       disabled={loading}
                       style={{ fontSize: 12, padding: "6px 14px" }}
                     >
-                      🔄 重新生成视频 ({stuckIds.length})
+                      ▶ 重试视频合成 ({stuckIds.length})
                     </button>
                   ) : null;
                 })()}

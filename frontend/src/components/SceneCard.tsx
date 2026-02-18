@@ -186,7 +186,7 @@ export default function SceneCard({
               }}
               style={{ flex: 1, justifyContent: "center", padding: "8px 12px", fontSize: 12 }}
             >
-              ↻ 重新生成
+              ↻ 重做素材
             </button>
           </div>
         )}
