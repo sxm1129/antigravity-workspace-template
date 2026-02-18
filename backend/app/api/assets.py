@@ -373,6 +373,8 @@ async def compose_final_video(
         episode = await db.get(Episode, req.episode_id)
         if not episode:
             raise HTTPException(status_code=404, detail="Episode not found")
+        if episode.project_id != req.project_id:
+            raise HTTPException(status_code=400, detail="Episode does not belong to this project")
 
     # Check all scenes are READY (filtered by episode if provided)
     scene_query = select(Scene).where(Scene.project_id == req.project_id)

@@ -127,10 +127,16 @@ def run_quick_draft(self, project_id: str, logline: str, style: str = "default")
                 status=ProjectStatus.COMPLETED.value,
                 final_video_path=output_path,
             ))
-
-        _publish_progress(project_id, "done", len(STEPS), len(STEPS), "预览完成!")
-        publish_project_update(project_id, ProjectStatus.COMPLETED.value)
-        return {"project_id": project_id, "status": "completed"}
+            _publish_progress(project_id, "done", len(STEPS), len(STEPS), "预览完成!")
+            publish_project_update(project_id, ProjectStatus.COMPLETED.value)
+            return {"project_id": project_id, "status": "completed"}
+        else:
+            # No videos were generated — stay in PRODUCTION, don't claim COMPLETED
+            logger.warning("Quick draft: no videos generated for project %s, staying in PRODUCTION", project_id)
+            _publish_progress(project_id, "partial_done", len(STEPS), len(STEPS),
+                              "素材生成完成，但视频生成失败。请在看板中手动重试。")
+            publish_project_update(project_id, ProjectStatus.PRODUCTION.value)
+            return {"project_id": project_id, "status": "partial"}
 
     except Exception as exc:
         logger.error("Quick draft failed for project %s: %s", project_id, exc, exc_info=True)

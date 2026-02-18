@@ -142,7 +142,7 @@ export default function KanbanBoard({ project }: { project: Project }) {
               <span>已完成: {completedEpisodes}/{episodes.length}</span>
             </div>
           </div>
-          {project.status === "PRODUCTION" && (
+          {(project.status === "PRODUCTION" || project.status === "IN_PRODUCTION") && (
             <button
               className="btn-primary"
               onClick={handlePhaseAction}
