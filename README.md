@@ -1,300 +1,584 @@
-# 🪐 Google Antigravity Workspace Template
+<p align="center">
+  <img src="docs/logo.svg" alt="MotionWeaver" width="80" />
+</p>
 
-**Production-grade starter kit for autonomous AI agents on Google Antigravity.**
+<h1 align="center">MotionWeaver · 漫剧创作引擎</h1>
 
-Language: [English](/docs/en/) | [中文（仓库主页）](README_CN.md) | [中文文档](/docs/zh/) | [Español](/docs/es/)
+<p align="center">
+  <strong>工业级端到端 AI 漫剧创作平台 —— 从一句话灵感到成片输出</strong>
+</p>
 
-![License](https://img.shields.io/badge/License-MIT-green)
-![Gemini](https://img.shields.io/badge/AI-Gemini_2.0_Flash-blue)
-![Architecture](https://img.shields.io/badge/Architecture-Event_Driven-purple)
-![Memory](https://img.shields.io/badge/Context-Infinite-orange)
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" />
+  <img src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white" />
+  <img src="https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white" />
+  <img src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white" />
+  <img src="https://img.shields.io/badge/Celery-5-37814A?logo=celery&logoColor=white" />
+  <img src="https://img.shields.io/badge/License-MIT-green" />
+</p>
 
-## 🌟 Project Intent
+---
 
-In a world full of AI IDEs, I want enterprise-grade architecture to be as simple as **Clone → Rename → Prompt**.
+## 目录
 
-This project leverages IDE context awareness (via `.cursorrules` and `.antigravity/rules.md`) to pre-embed a complete **cognitive architecture** in the repo.
+- [产品定位](#产品定位)
+- [核心特性](#核心特性)
+- [系统架构](#系统架构)
+- [技术栈](#技术栈)
+- [项目结构](#项目结构)
+- [快速开始](#快速开始)
+- [部署方案](#部署方案)
+- [环境变量](#环境变量)
+- [AI 服务提供商](#ai-服务提供商)
+- [API 文档](#api-文档)
+- [开发指南](#开发指南)
+- [License](#license)
 
-When you open this project, your IDE stops being just an editor—it becomes an **industry-savvy architect**.
+---
 
-**First principles:**
+## 产品定位
 
-- Minimize repetition: the repo should encode defaults so setup is nearly zero.
-- Make intent explicit: capture architecture, context, and workflows in files, not tribal knowledge.
-- Treat the IDE as a teammate: contextual rules turn the editor into a proactive architect, not a passive tool.
+MotionWeaver 解决的核心问题：**将漫剧/短剧创作从高门槛的专业工作简化为一句 Logline 即可驱动的自动化流水线。**
 
-### Why do we need a thinking scaffold?
+### 目标用户
 
-While building with Google Antigravity or Cursor, I found a pain point:
+| 用户类型 | 痛点 | MotionWeaver 解决方案 |
+|---------|------|----------------------|
+| **短视频创作者** | 缺乏编剧/美术/后期技能 | AI 全链路自动生成 |
+| **漫画 IP 运营方** | 内容生产周期长、人力成本高 | 批量化、流水线式生产 |
+| **教育/培训机构** | 需要定制化动画场景，预算有限 | 低成本自动化创作 |
+| **独立创作者** | 有创意但缺少执行团队 | 一人即可完成全流程 |
 
-**The IDE and models are powerful, but the empty project is too weak.**
+### 产品工作流
 
-Every new project repeats the same boring setup:
-
-- "Should my code live in `src` or `app`?"
-- "How do I define utilities so Gemini recognizes them?"
-- "How do I help the AI remember prior context?"
-
-This repetition wastes creative energy. My ideal workflow is: **after a git clone, the IDE already knows what to do.**
-
-So I built this project: **Antigravity Workspace Template**.
-
-## ⚡ Quick Start
-
-### Automated Installation (Recommended)
-
-**Linux / macOS:**
-```bash
-# 1. Clone the template
-git clone https://github.com/study8677/antigravity-workspace-template.git my-project
-cd my-project
-
-# 2. Run the installer
-chmod +x install.sh
-./install.sh
-
-# 3. Configure your API keys
-nano .env
-
-# 4. Run the agent
-source venv/bin/activate
-python src/agent.py
+```
+用户输入 Logline (一句话灵感)
+       │
+       ▼
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  AI 编剧          │────▶│  AI 分镜解析       │────▶│  AI 资产生成       │
+│  世界观大纲 → 剧本  │     │  场景拆解 → 结构化  │     │  图片 + 语音 + 视频 │
+└──────────────────┘     └──────────────────┘     └──────────────────┘
+                                                          │
+                                                          ▼
+                                                  ┌──────────────────┐
+                                                  │  自动合成          │
+                                                  │  FFmpeg / Remotion │
+                                                  └──────────────────┘
+                                                          │
+                                                          ▼
+                                                    最终视频成片
 ```
 
-**Windows:**
-```cmd
-# 1. Clone the template
-git clone https://github.com/study8677/antigravity-workspace-template.git my-project
-cd my-project
+---
 
-# 2. Run the installer
-install.bat
+## 核心特性
 
-# 3. Configure your API keys (notepad .env)
+### 🎬 AI 全链路创作
 
-# 4. Run the agent
-python src/agent.py
+- **AI 编剧**：一句话灵感 → 世界观大纲 → 完整对白剧本，支持自定义 Prompt 模板
+- **智能分镜**：剧本自动拆解为结构化场景（视觉描述 / 动作提示 / 台词 / 音效文字）
+- **多集架构**：支持按「剧集」组织多集连续剧，每集独立编剧 → 拍摄 → 合成
+
+### 🖼️ 多提供商 AI 资产生成
+
+- **图片生成**：Flux (私有部署) → OpenRouter (Gemini-2.5-Flash-Image) → Mock 兜底
+- **视频生成**：Volcengine Seedance I2V → DashScope I2V → FFmpeg 兜底
+- **语音合成**：IndexTTS 中英文高质量语音，支持自动去除角色名前缀
+- **统一重试机制**：`BaseGenService` 提供自动重试 + 指数退避 + 降级兜底 + 成本追踪
+
+### 🎥 双合成引擎
+
+- **FFmpeg 快速合成**：静音注入 + 时间戳校正 + 统一缩放 + concat 拼接
+- **Remotion 后期制作**（可选）：React 驱动的字幕气泡、转场特效、BGM 混音
+
+### 📡 实时协作
+
+- **WebSocket 推送**：Redis Pub/Sub → FastAPI WebSocket，场景/集/项目状态实时同步
+- **Celery 异步任务**：资产生成、视频合成等耗时操作全部后台执行
+- **看板视图**：项目级 Kanban 面板，一键管理多集进度
+
+### 🛡️ 工业级健壮性
+
+- **启动自恢复**：服务重启自动检测并回滚卡在中间状态的场景 / 集 / 项目
+- **LLM 多 Key 轮换**：支持多 API Key 池 + 智能故障计数 + 自动降级
+- **双向状态机**：项目和集均有明确的状态转移图，支持前进和回滚
+- **CeleryGuard**：前端在提交后台任务前自动检测 Worker 是否存活
+
+---
+
+## 系统架构
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Frontend (Next.js 16)                        │
+│  ┌───────────┐ ┌──────────────┐ ┌──────────┐ ┌───────────────────┐ │
+│  │ Home Page │ │ Project Page │ │ Episode  │ │ Remotion Player   │ │
+│  │ ProjectCard│ │ OutlinePanel │ │ Kanban   │ │ (Preview/Export)  │ │
+│  └───────────┘ └──────────────┘ └──────────┘ └───────────────────┘ │
+│                      Zustand Store + WebSocket                      │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │ HTTP / WS
+┌──────────────────────────▼──────────────────────────────────────────┐
+│                     Backend (FastAPI + Celery)                       │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────┐            │
+│  │  API Layer (REST + WebSocket + SSE)                 │            │
+│  │  projects / episodes / scenes / assets / quick-draft│            │
+│  └──────────────────────────┬──────────────────────────┘            │
+│                             │                                       │
+│  ┌──────────────────────────▼──────────────────────────┐            │
+│  │  Service Layer                                      │            │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐ │            │
+│  │  │ ai_writer│ │ image_gen│ │ video_gen│ │tts_svc │ │            │
+│  │  └──────────┘ └──────────┘ └──────────┘ └────────┘ │            │
+│  │  ┌──────────────┐ ┌────────────────────┐            │            │
+│  │  │ llm_client   │ │ base_gen_service   │            │            │
+│  │  │ (multi-key)  │ │ (retry+fallback)   │            │            │
+│  │  └──────────────┘ └────────────────────┘            │            │
+│  └──────────────────────────┬──────────────────────────┘            │
+│                             │                                       │
+│  ┌──────────────────────────▼──────────────────────────┐            │
+│  │  Task Layer (Celery)                                │            │
+│  │  asset_tasks / compose_task / quick_draft_task       │            │
+│  └─────────────────────────────────────────────────────┘            │
+│                                                                     │
+│  ┌─────────────┐ ┌─────────────┐ ┌────────────────────┐            │
+│  │  MySQL 8.0  │ │  Redis 7    │ │  media_volume (FS) │            │
+│  └─────────────┘ └─────────────┘ └────────────────────┘            │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Manual Installation
+---
+
+## 技术栈
+
+### 后端
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Python | 3.12 | 运行时 |
+| FastAPI | 0.115 | Web 框架 + WebSocket |
+| SQLAlchemy | 2.0 (async) | ORM (asyncmy 驱动) |
+| Celery | 5.x | 异步任务队列 |
+| Redis | 7 | 消息代理 + Pub/Sub |
+| MySQL | 8.0 | 持久化存储 |
+| httpx | 0.28 | 异步 HTTP 客户端 |
+| Pydantic | 2.11 | 数据校验与配置管理 |
+| FFmpeg | - | 视频处理与合成 |
+
+### 前端
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Next.js | 16.1 (Turbopack) | React 框架 + SSR |
+| React | 19.2 | UI 库 |
+| Zustand | 5.0 | 状态管理 |
+| Remotion | 4.0 | 程序化视频合成 + 预览 |
+| @dnd-kit | 6.3 | 拖拽排序 |
+| react-markdown | 10.1 | Markdown 渲染 |
+| TypeScript | 5.x | 类型安全 |
+| Tailwind CSS | 4 | 样式框架 |
+
+---
+
+## 项目结构
+
+```
+comicDramaStudio/
+├── backend/                          # FastAPI 后端
+│   ├── app/
+│   │   ├── main.py                   # 应用入口 + 启动恢复
+│   │   ├── config.py                 # Pydantic Settings 配置
+│   │   ├── database.py               # SQLAlchemy async engine
+│   │   ├── api/                      # RESTful 路由
+│   │   │   ├── router.py             # 路由聚合
+│   │   │   ├── projects.py           # 项目 CRUD + 状态转换
+│   │   │   ├── episodes.py           # 剧集管理
+│   │   │   ├── scenes.py             # 场景管理
+│   │   │   ├── assets.py             # 资产生成触发
+│   │   │   ├── pipeline.py           # 大纲/剧本/分镜 SSE 流水线
+│   │   │   ├── quick_draft.py        # 一键预览模式
+│   │   │   ├── ws.py                 # WebSocket 实时推送
+│   │   │   └── system.py             # 健康检查 + Celery 状态
+│   │   ├── models/                   # SQLAlchemy ORM 模型
+│   │   │   ├── project.py            # 项目 (含双向状态机)
+│   │   │   ├── episode.py            # 剧集 (含状态机)
+│   │   │   ├── scene.py              # 场景 (含生命周期)
+│   │   │   └── character.py          # 角色
+│   │   ├── services/                 # 业务逻辑层
+│   │   │   ├── ai_writer.py          # AI 编剧 (大纲/剧本/分镜解析)
+│   │   │   ├── image_gen.py          # 图片生成 (Flux/OpenRouter)
+│   │   │   ├── video_gen.py          # 视频生成 (Seedance/DashScope/FFmpeg)
+│   │   │   ├── tts_service.py        # 语音合成 (IndexTTS)
+│   │   │   ├── llm_client.py         # 统一 LLM 调用 (多 Key 轮换)
+│   │   │   ├── base_gen_service.py   # 生成服务基类 (重试/降级/度量)
+│   │   │   ├── base_compose_service.py # 合成策略接口
+│   │   │   ├── ffmpeg_compose.py     # FFmpeg 合成实现
+│   │   │   ├── ffmpeg_service.py     # FFmpeg 底层操作
+│   │   │   ├── pubsub.py             # Redis Pub/Sub 封装
+│   │   │   └── pipeline_orchestrator.py # 流水线编排
+│   │   ├── tasks/                    # Celery 异步任务
+│   │   │   ├── asset_tasks.py        # 资产生成任务
+│   │   │   ├── compose_task.py       # 视频合成任务
+│   │   │   └── quick_draft_task.py   # 一键预览全流程任务
+│   │   ├── prompts/                  # Prompt 模板管理
+│   │   │   ├── manager.py            # 模板加载器
+│   │   │   └── templates/            # 按风格分目录的 Prompt 模板
+│   │   └── schemas/                  # Pydantic 请求/响应模型
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── venv/
+│
+├── frontend/                         # Next.js 前端
+│   ├── src/
+│   │   ├── app/                      # Next.js App Router 页面
+│   │   │   ├── page.tsx              # 首页 (项目列表)
+│   │   │   └── project/[id]/         # 项目详情页
+│   │   │       └── episode/[episodeId]/ # 剧集详情页
+│   │   ├── components/               # React 组件
+│   │   │   ├── KanbanBoard.tsx       # 看板面板 (含 WS 实时刷新)
+│   │   │   ├── SceneCard.tsx         # 场景卡片
+│   │   │   ├── QuickDraftWizard.tsx  # 一键预览向导
+│   │   │   ├── OutlinePanel.tsx      # 大纲编辑面板
+│   │   │   ├── EpisodeCard.tsx       # 剧集卡片
+│   │   │   └── ...
+│   │   ├── stores/                   # Zustand 状态管理
+│   │   ├── lib/                      # API 客户端封装
+│   │   └── remotion-compositions/    # Remotion 视频组件
+│   ├── package.json
+│   └── Dockerfile
+│
+├── remotion/                         # Remotion 视频项目 (可选)
+├── media_volume/                     # 生成资产的持久化存储
+├── docker-compose.yml                # 容器编排
+├── server.sh                         # 本地服务管理脚本
+└── .env.example                      # 环境变量模板
+```
+
+---
+
+## 快速开始
+
+### 前置条件
+
+- **Python 3.12+**
+- **Node.js 22+**
+- **MySQL 8.0+**
+- **Redis 7+**
+- **FFmpeg** (视频合成必需)
+
+### 本地开发
 
 ```bash
-# 1. Clone the template
-git clone https://github.com/study8677/antigravity-workspace-template.git my-project
-cd my-project
+# 1. 克隆仓库
+git clone https://github.com/your-org/comicDramaStudio.git
+cd comicDramaStudio
 
-# 2. Create virtual environment
+# 2. 后端设置
+cd backend
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# 3. Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
 
-# 4. Configure your API keys
-cp .env.example .env  # (if available) or create .env manually
-nano .env
+# 3. 配置环境变量
+cp ../.env.example .env
+# 编辑 .env 添加你的 API Key 和数据库连接信息
 
-# 5. Run the agent
-python src/agent.py
+# 4. 前端设置
+cd ../frontend
+npm install
+
+# 5. 一键启动所有服务
+cd ..
+chmod +x server.sh
+./server.sh all start
+
+# 6. 访问
+# 前端: http://localhost:9000
+# 后端: http://localhost:9001
+# API 文档: http://localhost:9001/docs
 ```
 
-**That's it!** The IDE auto-loads configuration via `.cursorrules` + `.antigravity/rules.md`. You're ready to prompt.
-
-## 🎯 What Is This?
-
-This is **not** another LangChain wrapper. It's a minimal, transparent workspace for building AI agents that:
-
-- 🧠 Have infinite memory (recursive summarization)
-- 🛠️ Auto-discover tools from `src/tools/`
-- 📚 Auto-inject context from `.context/`
-- 🔌 Connect to MCP servers seamlessly
-- 🤖 Coordinate multiple specialist agents
-- 📦 Save outputs as artifacts (plans, logs, evidence)
-
-**Clone → Rename → Prompt. That's the workflow.**
-
-## 🚀 Key Features
-
-| Feature | Description |
-|---------|-------------|
-| 🧠 **Infinite Memory** | Recursive summarization compresses context automatically |
-| 🧠 **True Thinking** | "Deep Think" step using Chain-of-Thought prompts before acting |
-| 🎓 **Skills System** | Modular capabilities as folders (`src/skills/`) with auto-loading (includes `agent-repo-init`) |
-| 🛠️ **Universal Tools** | Drop Python functions in `src/tools/` → auto-discovered |
-| 📚 **Auto Context** | Add files to `.context/` → auto-injected into prompts |
-| 🔌 **MCP Support** | Connect GitHub, databases, filesystems, custom servers |
-| 🤖 **Swarm Agents** | Multi-agent orchestration with Router-Worker pattern |
-| ⚡ **Gemini Native** | Optimized for Gemini 2.0 Flash |
-| 🌐 **LLM Agnostic** | Use OpenAI, Azure, Ollama, or any OpenAI-compatible API |
-| 📂 **Artifact-First** | Convention-first workflow for storing plans, logs, and evidence in `artifacts/` |
-| 🔒 **Sandbox Execution** | Configurable code execution environments (local by default) |
-
-## 📚 Documentation
-
-**Full documentation available in `/docs/en/`:**
-
-- **[Quick Start](docs/en/QUICK_START.md)** — Installation & deployment
-- **[Philosophy](docs/en/PHILOSOPHY.md)** — Core concepts & architecture
-- **[Zero-Config](docs/en/ZERO_CONFIG.md)** — Auto tool & context loading
-- **[MCP Integration](docs/en/MCP_INTEGRATION.md)** — External tool connectivity
-- **[Swarm Protocol](docs/en/SWARM_PROTOCOL.md)** — Multi-agent coordination
-- **[Roadmap](docs/en/ROADMAP.md)** — Future phases & vision
-
-### Sandbox Configuration (Zero-Config by default)
-
-The sandbox lets the agent execute generated Python code safely and consistently. It defaults to a local subprocess with isolation and limits.
-
-- `SANDBOX_TYPE`: `local` (default) | `docker` (opt-in) | `e2b` (future)
-- `SANDBOX_TIMEOUT_SEC`: maximum execution time in seconds (default `30`)
-- `SANDBOX_MAX_OUTPUT_KB`: truncate stdout/stderr to limit size (default `10`)
-
-Docker (opt-in) extra variables:
-- `DOCKER_IMAGE` (default `python:3.11-slim`)
-- `DOCKER_NETWORK_ENABLED` (`false` by default)
-- `DOCKER_CPU_LIMIT` (default `0.5` cores)
-- `DOCKER_MEMORY_LIMIT` (default `256m`)
-
-Example:
+### 使用 server.sh 管理服务
 
 ```bash
-export SANDBOX_TYPE=local
-export SANDBOX_TIMEOUT_SEC=30
-export SANDBOX_MAX_OUTPUT_KB=10
-# Docker mode
-# export SANDBOX_TYPE=docker
-# export DOCKER_IMAGE=python:3.11-slim
-# export DOCKER_NETWORK_ENABLED=false
-# export DOCKER_CPU_LIMIT=0.5
-# export DOCKER_MEMORY_LIMIT=256m
+./server.sh all start       # 启动全部服务 (Backend + Celery + Frontend)
+./server.sh all stop        # 停止全部
+./server.sh all status      # 查看运行状态
+./server.sh backend restart # 仅重启后端
+./server.sh frontend stop   # 仅停止前端
 ```
 
-## 🏗️ Project Structure
+---
 
-```
-src/
-├── agent.py           # Main agent loop
-├── memory.py          # JSON memory manager
-├── mcp_client.py      # MCP integration
-├── swarm.py           # Multi-agent orchestration
-├── agents/            # Specialist agents
-├── tools/             # Your custom tools
-└── skills/            # Modular skills (Zero-Config)
+## 部署方案
 
-.context/             # Knowledge base (auto-injected)
-.antigravity/         # Antigravity rules
-artifacts/            # Outputs & evidence
-```
+### 方案一：Docker Compose（推荐）
 
-## 💡 Example: Build a Tool in 30 Seconds
+适用于**开发环境**和**小规模生产部署**。
 
-```python
-# src/tools/my_tool.py
-def analyze_sentiment(text: str) -> str:
-    """Analyzes the sentiment of given text."""
-    return "positive" if len(text) > 10 else "neutral"
-```
+```bash
+# 1. 配置环境变量
+cp .env.example .env
+# 编辑 .env
 
-**Restart agent.** Done! The tool is now available.
+# 2. 启动全部服务
+docker compose up -d
 
-## 🎓 Example: Initialize a New Repo with Skill
+# 服务列表:
+#   motionweaver-mysql        — MySQL 8.0 (端口 3307)
+#   motionweaver-redis        — Redis 7 (端口 6379)
+#   motionweaver-api          — FastAPI Backend (端口 8000)
+#   motionweaver-celery-worker — Celery 异步任务处理
+#   motionweaver-celery-beat   — Celery 定时任务调度
+#   motionweaver-frontend     — Next.js Frontend (端口 3000)
 
-The built-in `agent-repo-init` skill supports two modes:
-- `quick`: minimal clean scaffold
-- `full`: scaffold + runtime profile defaults (`.env`, mission, context profile, init report)
-
-You can run the portable script at `skills/agent-repo-init/scripts/init_project.py`:
-
-```text
-python skills/agent-repo-init/scripts/init_project.py \
-  --project-name my-new-agent \
-  --destination-root /absolute/path/for/new/projects \
-  --mode quick
+# 3. 查看日志
+docker compose logs -f api
+docker compose logs -f celery_worker
 ```
 
-`full` mode example adds profile defaults:
+**架构图：**
 
-```text
-python skills/agent-repo-init/scripts/init_project.py \
-  --project-name my-new-agent \
-  --destination-root /absolute/path/for/new/projects \
-  --mode full --llm-provider openai --enable-mcp --disable-swarm --enable-docker --init-git
+```
+                   ┌─────────────────────────┐
+                   │     Nginx / CDN         │
+                   │   (反向代理, 可选)        │
+                   └──────────┬──────────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              │               │               │
+     ┌────────▼─────┐  ┌─────▼──────┐  ┌─────▼──────┐
+     │  Frontend    │  │  Backend   │  │  WebSocket │
+     │  :3000       │  │  :8000     │  │  /ws/{id}  │
+     └──────────────┘  └─────┬──────┘  └─────┬──────┘
+                             │               │
+              ┌──────────────┼───────────────┤
+              │              │               │
+     ┌────────▼─────┐ ┌─────▼──────┐ ┌──────▼──────┐
+     │  MySQL 8.0   │ │  Redis 7   │ │ media_volume│
+     │  :3307       │ │  :6379     │ │  (共享卷)    │
+     └──────────────┘ └─────┬──────┘ └─────────────┘
+                            │
+                   ┌────────▼────────┐
+                   │  Celery Worker  │
+                   │  (FFmpeg 内置)   │
+                   └─────────────────┘
 ```
 
-## 🔌 MCP Integration
+### 方案二：云服务器裸机部署
 
-Connect to external tools:
+适用于**需要 GPU 或高性能 FFmpeg 的场景**。
 
-```json
-{
-  "servers": [
-    {
-      "name": "github",
-      "transport": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "enabled": true
-    }
-  ]
-}
+```bash
+# 1. 安装系统依赖
+sudo apt update && sudo apt install -y ffmpeg mysql-server redis-server
+
+# 2. Python 环境 (推荐 Conda)
+conda activate dolphin_env   # 或创建新环境
+pip install -r backend/requirements.txt
+
+# 3. 前端构建
+cd frontend && npm install && npm run build
+
+# 4. 启动
+./server.sh all start
+
+# 5. 生产模式建议用 Supervisor / systemd 管理进程
 ```
 
-Agent automatically discovers and uses all MCP tools.
+### 方案三：Kubernetes 集群
 
-## 🤖 Multi-Agent Swarm
+适用于**大规模生产环境**。
 
-Decompose complex tasks:
+| 组件 | 部署建议 |
+|------|---------|
+| Frontend | Deployment + Service (NodePort/Ingress) |
+| Backend API | Deployment + Service + HPA |
+| Celery Worker | Deployment (可按任务类型分 Queue) |
+| MySQL | StatefulSet 或云 RDS |
+| Redis | StatefulSet 或云 ElastiCache |
+| media_volume | PersistentVolumeClaim (NFS/EBS) |
+| Nginx | Ingress Controller |
 
-```python
-from src.swarm import SwarmOrchestrator
+---
 
-swarm = SwarmOrchestrator()
-result = swarm.execute("Build and review a calculator")
+## 环境变量
+
+在项目根目录创建 `.env` 文件：
+
+```bash
+# ─── 数据库 ───
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_password
+DB_NAME=comicdrama
+
+# ─── Redis ───
+REDIS_URL=redis://localhost:6379/0
+
+# ─── 应用 ───
+USE_MOCK_API=True          # True: 使用 Mock 数据 (开发/演示); False: 调用真实 AI API
+DEBUG=True
+MEDIA_VOLUME=media_volume
+
+# ─── LLM (AI 编剧) ───
+OPENROUTER_API_KEY=sk-or-xxx           # OpenRouter API Key
+OPENROUTER_API_KEYS=key1,key2,key3     # 多 Key 轮换 (逗号分隔)
+STORY_MODEL=google/gemini-3-flash-preview
+
+# ─── 图片生成 ───
+IMAGE_PROVIDERS=flux,openrouter        # 提供商优先级
+FLUX_API_KEY=your_flux_key             # Flux 私有部署
+FLUX_API_BASE=http://your-flux:8080/api/v1
+IMAGE_MODEL=google/gemini-2.5-flash-image
+
+# ─── 视频生成 ───
+VIDEO_PROVIDERS=seedance,ffmpeg        # 提供商优先级
+ARK_API_KEY=your_ark_key               # Volcengine Seedance
+DASHSCOPE_API_KEY=your_dashscope_key   # 阿里 DashScope (备选)
+
+# ─── 语音合成 ───
+INDEX_TTS_URL=http://your-tts:8049
+INDEX_TTS_VOICE=zh_male_tech
+
+# ─── 合成引擎 ───
+COMPOSE_PROVIDER=ffmpeg                # ffmpeg | remotion
 ```
 
-The swarm automatically:
-- 📤 Routes to Coder, Reviewer, Researcher agents
-- 🧩 Synthesizes results
-- 📂 Exposes message logs via `get_message_log()` for inspection
+---
 
-## ✅ What's Complete
+## AI 服务提供商
 
-- ✅ Phase 1-7: Foundation, DevOps, Memory, Tools, Swarm, Discovery
-- ✅ Phase 8: MCP Integration (fully implemented)
-- 🚀 Phase 9: Enterprise Core (in progress)
+MotionWeaver 采用**多提供商、自动降级**策略，确保服务持续可用：
 
-## 🆕 Recent Updates
+```
+┌─────────────────────────────────────────────────────────┐
+│                    BaseGenService                        │
+│  ┌─────────┐                                            │
+│  │ execute()│ ─── retry (N次) ─── fallback ─── mock     │
+│  └─────────┘                                            │
+└─────────────────────────────────────────────────────────┘
+```
 
-- Added **True Thinking**: The agent now performs a real "Deep Think" step (Chain-of-Thought) before every action, generating a structured plan.
-- Added **Skills System**: New `src/skills/` directory allows for modular, folder-based agent capabilities (Docs + Code).
-- Added **agent-repo-init skill**: Initialize a clean, reusable repository from this template via `init_agent_repo`.
-- Added local OpenAI-compatible backend support (e.g., Ollama) when no Google API key is provided.
-- Fixed `.env` loading so runs from the `src/` folder still read the project-root config.
-- CLI entrypoints (`agent.py` and `src/agent.py`) now accept tasks via arguments `AGENT_TASK`.
+| 能力 | 主提供商 | 备选提供商 | 兜底方案 |
+|------|---------|-----------|---------|
+| **文案生成** | OpenRouter (Gemini 3 Flash) | — | Mock 模板 |
+| **图片生成** | Flux (私有部署) | OpenRouter (Gemini Image) | Pillow Mock 图 |
+| **视频生成** | Volcengine Seedance I2V | DashScope I2V | FFmpeg 静帧→视频 |
+| **语音合成** | IndexTTS | — | 静音 WAV |
+| **视频合成** | FFmpeg | Remotion | — |
 
-See [Roadmap](docs/en/ROADMAP.md) for details.
+> **Mock 模式** (`USE_MOCK_API=True`)：无需任何 API Key，使用内置数据即可完整体验全流程，适合开发调试和产品演示。
 
-## 🤝 Contributing
+---
 
-Ideas are contributions too! Open an [issue](https://github.com/study8677/antigravity-workspace-template/issues) to:
-- Report bugs
-- Suggest features
-- Propose architecture (Phase 9)
+## API 文档
 
-Or submit a PR to improve docs or code.
+启动后端后访问 **http://localhost:9001/docs** 查看完整的 Swagger 文档。
 
-## 👥 Contributors
+### 核心 API 概览
 
-- [@devalexanderdaza](https://github.com/devalexanderdaza) — First contributor. Implemented demo tools, enhanced agent functionality, proposed the "Agent OS" roadmap, and completed MCP integration.
-- [@Subham-KRLX](https://github.com/Subham-KRLX) — Added dynamic tools and context loading (Fixes #4) and the multi-agent cluster protocol (Fixes #6).
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/projects` | 创建新项目 |
+| `GET` | `/api/projects` | 项目列表 |
+| `PATCH` | `/api/projects/{id}/status` | 推进项目状态 |
+| `POST` | `/api/pipeline/{id}/outline` | SSE 流 — 生成大纲 |
+| `POST` | `/api/pipeline/{id}/extract-episodes` | 提取剧集 |
+| `POST` | `/api/pipeline/{id}/episode-script` | 生成单集剧本 |
+| `POST` | `/api/pipeline/{id}/parse-scenes` | 解析分镜 |
+| `POST` | `/api/assets/scene/{id}/generate` | 生成场景资产 |
+| `POST` | `/api/assets/compose/{project_id}` | 提交合成任务 |
+| `POST` | `/api/quick-draft/` | 一键预览模式 |
+| `WS` | `/ws/{project_id}` | 实时状态推送 |
+| `GET` | `/api/system/celery-status` | Celery Worker 健康检查 |
 
-## ⭐ Star History
+---
 
-[![Star History Chart](https://api.star-history.com/svg?repos=study8677/antigravity-workspace-template&type=Date)](https://star-history.com/#study8677/antigravity-workspace-template&Date)
+## 开发指南
 
-## 📄 License
+### 添加新的图片/视频提供商
+
+1. 在 `backend/app/services/` 中创建新的 provider 类，继承 `BaseGenService`
+2. 实现 `_generate()` 和可选的 `_fallback()` / `_estimate_cost()`
+3. 在 `image_gen.py` 或 `video_gen.py` 的 provider 路由表中注册
+4. 在 `config.py` 中添加对应的环境变量
+5. 更新 `IMAGE_PROVIDERS` / `VIDEO_PROVIDERS` 配置
+
+### 添加新的 Prompt 模板
+
+1. 在 `backend/app/prompts/templates/` 下创建新的风格目录
+2. 添加对应阶段的 `.txt` 模板文件
+3. `PromptManager` 会自动发现和加载
+
+### 前端开发
+
+```bash
+cd frontend
+npm run dev -- -p 9000    # 开发模式 (Turbopack 热更新)
+npm run build             # 生产构建
+npm run lint              # 代码检查
+```
+
+### 后端测试
+
+```bash
+cd backend
+source venv/bin/activate
+python -m pytest tests/ -v    # 运行测试
+python -m py_compile app/main.py  # 语法检查
+```
+
+---
+
+## Data Model
+
+### 核心实体关系
+
+```
+Project (项目)
+  │
+  ├── Episode (剧集)    [1:N]
+  │     └── Scene (场景)  [1:N]
+  │           └── AssetVersion (资产版本)  [1:N]
+  │
+  ├── Scene (场景)      [1:N, 直接关联]
+  │
+  └── Character (角色)  [1:N]
+```
+
+### 状态机
+
+**Project 状态流转：**
+```
+DRAFT → OUTLINE_REVIEW → IN_PRODUCTION → COMPLETED
+                       ↘ CHARACTER_DESIGN → SCRIPT_REVIEW → STORYBOARD → PRODUCTION → COMPOSING → COMPLETED
+```
+
+**Episode 状态流转：**
+```
+SCRIPT_GENERATING → SCRIPT_REVIEW → STORYBOARD → PRODUCTION → COMPOSING → COMPLETED
+```
+
+**Scene 状态流转：**
+```
+PENDING → GENERATING → REVIEW → APPROVED → VIDEO_GEN → READY
+    ↑                                                     │
+    └──────── ERROR ◄─────────────────────────────────────┘
+```
+
+---
+
+## License
 
 MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
-**[Explore Full Documentation →](docs/en/)**
+<p align="center">
+  <sub>Built with ❤️ by the MotionWeaver team</sub>
+</p>
