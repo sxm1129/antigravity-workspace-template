@@ -1,5 +1,1 @@
-"""Multi-agent outline generation framework.
-
-Each agent is a specialized LLM caller that produces structured output.
-Agents are orchestrated by the OutlinePipeline in outline_pipeline.py.
-"""
+"""AI Agent services — tool-calling agents for content generation."""
