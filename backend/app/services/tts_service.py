@@ -49,11 +49,15 @@ def strip_speaker_prefix(text: str) -> str:
     return _SPEAKER_PREFIX_RE.sub("", text).strip()
 
 
-def _get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
-    """Return a module-level httpx.AsyncClient, creating it on first use."""
+def _get_http_client() -> httpx.AsyncClient:
+    """Return a module-level httpx.AsyncClient, creating it on first use.
+
+    Timeout is NOT set at client level — callers must pass timeout per-request
+    to avoid the first-caller-wins timing bug.
+    """
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient(timeout=timeout)
+        _http_client = httpx.AsyncClient(timeout=300.0)
     return _http_client
 
 

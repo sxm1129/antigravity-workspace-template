@@ -95,9 +95,6 @@ class VideoGenService(BaseGenService[str]):
         local_image_path = kwargs["local_image_path"]
         local_audio_path = kwargs.get("local_audio_path")
 
-        if settings.USE_MOCK_API:
-            return _mock_video(project_id, scene_id)
-
         if provider == "seedance":
             return await _generate_video_core(
                 prompt_motion=prompt_motion,
