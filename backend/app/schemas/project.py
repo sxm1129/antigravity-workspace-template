@@ -13,7 +13,7 @@ class ProjectCreate(BaseModel):
     """Schema for creating a new project."""
 
     title: str = Field(..., min_length=1, max_length=255)
-    logline: str | None = None
+    logline: str = Field(..., min_length=1, max_length=5000, description="Story logline is required")
 
 
 class ProjectUpdate(BaseModel):

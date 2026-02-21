@@ -111,7 +111,7 @@ export default function HomePage() {
               <button className="btn-secondary" onClick={() => setShowCreate(false)}>
                 取消
               </button>
-              <button className="btn-primary" onClick={handleCreate} disabled={!title.trim() || loading}>
+              <button className="btn-primary" onClick={handleCreate} disabled={!title.trim() || !logline.trim() || loading}>
                 {loading ? <span className="spinner" /> : null}
                 创建项目
               </button>
