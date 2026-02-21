@@ -24,14 +24,19 @@ settings = get_settings()
 OPENROUTER_URL = f"{settings.OPENROUTER_BASE_URL}/chat/completions"
 
 # Module-level httpx client for connection reuse (lazy init)
+# NOTE: timeout is NOT set at client level — callers must specify per-request.
 _http_client: httpx.AsyncClient | None = None
 
 
-def _get_http_client(timeout: float = 180.0) -> httpx.AsyncClient:
-    """Return a module-level httpx.AsyncClient, creating it on first use."""
+def _get_http_client() -> httpx.AsyncClient:
+    """Return a module-level httpx.AsyncClient, creating it on first use.
+
+    Timeout is intentionally NOT set — callers must pass timeout per-request
+    to avoid BUG-4 (first caller's timeout winning permanently).
+    """
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient(timeout=timeout)
+        _http_client = httpx.AsyncClient(timeout=300.0)
     return _http_client
 
 IMAGE_SYSTEM_PROMPT = """你是一位专业的漫画/动漫插画师。请根据用户提供的详细画面描述，
@@ -182,8 +187,8 @@ async def _generate_via_flux(
         settings.FLUX_MODEL, scene_id[:8], seed,
     )
 
-    client = _get_http_client(timeout=float(settings.FLUX_TIMEOUT))
-    response = await client.post(url, headers=headers, json=payload)
+    client = _get_http_client()
+    response = await client.post(url, headers=headers, json=payload, timeout=float(settings.FLUX_TIMEOUT))
     response.raise_for_status()
 
     result = response.json()
@@ -250,8 +255,13 @@ async def _generate_via_openrouter(
     user_content.append({"type": "text", "text": f"请生成以下画面的插画:\n\n{full_prompt}"})
     messages.append({"role": "user", "content": user_content})
 
+    # Use key rotation pool from llm_client instead of hardcoded single key
+    from app.services.llm_client import _next_key, _mask_key
+    api_key = _next_key()
+    logger.info("OpenRouter image gen using key=%s", _mask_key(api_key))
+
     headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://motionweaver.app",
         "X-Title": "MotionWeaver",
@@ -268,7 +278,7 @@ async def _generate_via_openrouter(
     logger.info("Calling OpenRouter image model=%s for scene=%s", settings.IMAGE_MODEL, scene_id[:8])
 
     client = _get_http_client()
-    response = await client.post(OPENROUTER_URL, headers=headers, json=body)
+    response = await client.post(OPENROUTER_URL, headers=headers, json=body, timeout=180.0)
     response.raise_for_status()
 
     data = response.json()

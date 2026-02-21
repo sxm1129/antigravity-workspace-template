@@ -23,6 +23,30 @@ settings = get_settings()
 
 
 # ---------------------------------------------------------------------------
+# Path safety
+# ---------------------------------------------------------------------------
+
+def _validate_media_path(relative_path: str) -> str:
+    """Validate that a relative path stays within MEDIA_VOLUME.
+
+    Prevents path traversal attacks (e.g. ../../etc/passwd).
+    Returns the validated absolute path.
+    Raises ValueError if the path escapes MEDIA_VOLUME.
+    """
+    if os.path.isabs(relative_path):
+        raise ValueError(f"Absolute paths are not allowed: {relative_path}")
+
+    # Resolve to catch ../ traversal
+    media_root = os.path.realpath(settings.MEDIA_VOLUME)
+    full_path = os.path.realpath(os.path.join(media_root, relative_path))
+
+    if not full_path.startswith(media_root + os.sep) and full_path != media_root:
+        raise ValueError(f"Path traversal detected: {relative_path}")
+
+    return full_path
+
+
+# ---------------------------------------------------------------------------
 # Image Upscaling (2x / 4x)
 # ---------------------------------------------------------------------------
 
@@ -45,6 +69,9 @@ async def upscale_image(
     Returns:
         Relative path to upscaled image.
     """
+    # Validate path before processing (BUG-3: path traversal guard)
+    _validate_media_path(local_image_path)
+
     if settings.ARK_API_KEY:
         try:
             return await _volcengine_upscale(local_image_path, scale, http_client)

@@ -57,8 +57,12 @@ async def score_image(
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
         ]
 
+        # Use key rotation pool from llm_client
+        from app.services.llm_client import _next_key, _get_client
+        api_key = _next_key()
+
         headers = {
-            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 
@@ -69,13 +73,14 @@ async def score_image(
             "max_tokens": 300,
         }
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{settings.OPENROUTER_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            resp.raise_for_status()
+        client = _get_client()
+        resp = await client.post(
+            f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60.0,
+        )
+        resp.raise_for_status()
 
         data = resp.json()
         raw_text = data["choices"][0]["message"]["content"]
