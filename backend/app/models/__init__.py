@@ -5,6 +5,7 @@ from app.models.episode import Episode, EpisodeStatus, EPISODE_VALID_TRANSITIONS
 from app.models.character import Character
 from app.models.scene import Scene, SceneStatus
 from app.models.asset_version import AssetVersion, AssetType
+from app.models.novel import Novel, NovelChapter, NovelStatus
 
 __all__ = [
     "Project",
@@ -19,4 +20,7 @@ __all__ = [
     "SceneStatus",
     "AssetVersion",
     "AssetType",
+    "Novel",
+    "NovelChapter",
+    "NovelStatus",
 ]
