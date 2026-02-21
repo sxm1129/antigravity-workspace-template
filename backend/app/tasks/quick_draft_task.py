@@ -102,9 +102,13 @@ def run_quick_draft(self, project_id: str, logline: str, style: str = "default")
             _publish_progress(project_id, "video_gen", 6, len(STEPS),
                               f"视频生成 {i+1}/{total_scenes}...")
             try:
-                img_path = run_async(_get_scene_field(sid, "local_image_path"))
-                audio_path = run_async(_get_scene_field(sid, "local_audio_path"))
-                motion_prompt = run_async(_get_scene_field(sid, "prompt_motion")) or ""
+                # Batch-fetch scene fields in one query instead of 3 separate calls
+                scene_fields = run_async(_get_scene_fields(
+                    sid, ["local_image_path", "local_audio_path", "prompt_motion"]
+                ))
+                img_path = scene_fields.get("local_image_path")
+                audio_path = scene_fields.get("local_audio_path")
+                motion_prompt = scene_fields.get("prompt_motion") or ""
                 if img_path:
                     from app.services.video_gen import generate_video
                     vid_path = run_async(generate_video(
@@ -224,6 +228,23 @@ async def _get_scene_field(scene_id: str, field: str):
             select(getattr(Scene, field)).where(Scene.id == scene_id)
         )
         return result.scalar()
+
+
+async def _get_scene_fields(scene_id: str, fields: list[str]) -> dict:
+    """Get multiple fields from a scene in a single query."""
+    from sqlalchemy import select
+    from app.database import async_session_factory
+    from app.models.scene import Scene
+
+    columns = [getattr(Scene, f) for f in fields]
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(*columns).where(Scene.id == scene_id)
+        )
+        row = result.first()
+        if not row:
+            return {}
+        return dict(zip(fields, row))
 
 
 async def _get_ready_scene_videos(project_id: str) -> list[str]:

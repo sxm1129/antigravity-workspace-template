@@ -120,6 +120,20 @@ async def reorder_scenes(
         project_id: Project ID.
         scene_ids: List of scene IDs in the desired new order.
     """
+    # BUG-R2-1: Validate ALL scene_ids belong to this project before updating
+    ownership_result = await db.execute(
+        select(Scene.id).where(
+            Scene.id.in_(scene_ids), Scene.project_id == project_id
+        )
+    )
+    owned_ids = {r[0] for r in ownership_result.fetchall()}
+    bad_ids = set(scene_ids) - owned_ids
+    if bad_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{len(bad_ids)} scene(s) do not belong to project {project_id}",
+        )
+
     for i, scene_id in enumerate(scene_ids):
         await db.execute(
             update(Scene)
