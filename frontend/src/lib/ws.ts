@@ -1,13 +1,24 @@
 /** WebSocket client for real-time task progress. */
 
-const WS_BASE =
-  (process.env.NEXT_PUBLIC_WS_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined"
-    ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`
-    : "ws://localhost:9001"))
-  .replace("http://", "ws://")
-  .replace("https://", "wss://");
+const WS_BASE = (() => {
+  // Priority: explicit WS URL > API URL > derive from window (same-origin, for Docker/prod)
+  const explicit = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_URL;
+  if (explicit) {
+    return explicit.replace("http://", "ws://").replace("https://", "wss://");
+  }
+  // In dev mode, Next.js proxy does NOT support WebSocket upgrades,
+  // so we must connect directly to the backend on port 9001.
+  if (typeof window !== "undefined") {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // If running via Next.js dev on a different port, connect to backend directly
+    const host = window.location.hostname;
+    const port = window.location.port;
+    // In production Docker (same port), use same host; in dev (port 9000), target 9001
+    const backendPort = port === "9000" ? "9001" : port;
+    return `${proto}//${host}:${backendPort}`;
+  }
+  return "ws://localhost:9001";
+})();
 
 export interface WSMessage {
   type: "scene_update" | "project_update" | "compose_progress" | "task_progress" | "pong";
