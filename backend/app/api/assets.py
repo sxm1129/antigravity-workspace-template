@@ -393,6 +393,15 @@ async def compose_final_video(
             detail=f"{len(not_ready)} scenes are not READY yet",
         )
 
+    # BUG-R1-1: Validate ALL ready scenes actually have video files
+    no_video = [s for s in scenes if not s.local_video_path]
+    if no_video:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{len(no_video)} scene(s) are READY but missing video files. "
+                   f"Try retry-video-gen for these scenes.",
+        )
+
     # Only set project status to COMPOSING if it's currently PRODUCTION (legacy).
     if project.status == ProjectStatus.PRODUCTION.value:
         project.status = ProjectStatus.COMPOSING.value

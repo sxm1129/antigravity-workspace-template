@@ -120,24 +120,32 @@ async def _get_scene_data(project_id: str, episode_id: str | None = None) -> lis
 
         result = await session.execute(query)
         scenes = result.scalars().all()
-        return [
-            SceneData(
-                id=s.id,
-                video_path=s.local_video_path or "",
-                audio_path=s.local_audio_path,
-                dialogue_text=s.dialogue_text,
-                sfx_text=s.sfx_text,
-                prompt_motion=s.prompt_motion,
-                sequence_order=s.sequence_order,
-                duration_seconds=max(
-                    s.audio_duration or 0,
-                    s.video_duration or 0,
-                    5.0,
-                ),
-            )
-            for s in scenes
-            if s.local_video_path
-        ]
+
+        # Filter to scenes with video_path and log any skipped
+        scene_data = []
+        for s in scenes:
+            if s.local_video_path:
+                scene_data.append(
+                    SceneData(
+                        id=s.id,
+                        video_path=s.local_video_path,
+                        audio_path=s.local_audio_path,
+                        dialogue_text=s.dialogue_text,
+                        sfx_text=s.sfx_text,
+                        prompt_motion=s.prompt_motion,
+                        sequence_order=s.sequence_order,
+                        duration_seconds=max(
+                            s.audio_duration or 0,
+                            s.video_duration or 0,
+                            5.0,
+                        ),
+                    )
+                )
+            else:
+                logger.warning(
+                    "Compose: skipping scene %s (READY but no video_path)", s.id[:8]
+                )
+        return scene_data
 
 
 async def _get_project_meta(project_id: str) -> dict:

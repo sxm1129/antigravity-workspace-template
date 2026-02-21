@@ -76,7 +76,7 @@ def _recover_stuck_scenes():
         engine = create_engine(url, pool_pre_ping=True)
 
         transitions = [
-            ("VIDEO_GEN", "APPROVED"),
+            ("VIDEO_GEN", "REVIEW"),     # image exists, video interrupted → show for re-approval
             ("IMAGE_GEN", "PENDING"),
             ("AUDIO_GEN", "PENDING"),
             ("GENERATING", "PENDING"),

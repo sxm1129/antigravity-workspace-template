@@ -18,6 +18,7 @@ from app.api.render import router as render_router
 from app.api.models import router as models_router
 from app.api.agents import router as agents_router
 from app.api.novels import router as novels_router
+from app.api.storyboard import router as storyboard_router
 
 api_router = APIRouter(prefix="/api", redirect_slashes=False)
 
@@ -36,4 +37,5 @@ api_router.include_router(render_router, tags=["Render"])
 api_router.include_router(models_router, tags=["Models"])
 api_router.include_router(agents_router, tags=["AI Agents"])
 api_router.include_router(novels_router, tags=["Novels"])
+api_router.include_router(storyboard_router, tags=["Storyboard"])
 
