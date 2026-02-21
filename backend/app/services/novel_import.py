@@ -126,8 +126,16 @@ async def parse_novel(db: AsyncSession, novel_id: str) -> Novel:
     novel.status = NovelStatus.PARSING.value
     await db.commit()
 
+    # Delete existing chapters to prevent duplicates on re-parse
+    from sqlalchemy import delete
+    await db.execute(
+        delete(NovelChapter).where(NovelChapter.novel_id == novel_id)
+    )
+
     chapters_data = parse_chapters(novel.raw_text or "")
     if not chapters_data:
+        novel.status = NovelStatus.UPLOADED.value
+        await db.commit()
         raise RuntimeError("Failed to parse any chapters from the novel text")
 
     # Create chapter records

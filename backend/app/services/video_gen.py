@@ -59,6 +59,9 @@ class VideoGenService(BaseGenService[str]):
 
     async def _generate(self, **kwargs: Any) -> str:
         """Try primary provider from VIDEO_PROVIDERS chain."""
+        if settings.USE_MOCK_API:
+            return _mock_video(kwargs["project_id"], kwargs["scene_id"])
+
         providers = self._get_provider_chain()
         if not providers:
             raise RuntimeError("No video providers configured")
@@ -227,9 +230,11 @@ async def generate_video(
 def _read_image_as_base64(local_image_path: str) -> str | None:
     """Read a local image from media_volume and return as data URL base64."""
     if not local_image_path:
+        logger.warning("_read_image_as_base64: empty image path")
         return None
     image_full_path = os.path.join(settings.MEDIA_VOLUME, local_image_path)
     if not os.path.exists(image_full_path):
+        logger.warning("_read_image_as_base64: file not found: %s", image_full_path)
         return None
     with open(image_full_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")

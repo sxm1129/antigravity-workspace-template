@@ -224,35 +224,58 @@ class Agent:
         )
 
     async def _llm_call(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
-        """Raw LLM call with tool support via OpenRouter."""
-        key = _next_key()
-        headers = {
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://motionweaver.app",
-            "X-Title": "MotionWeaver",
-        }
-        body: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-        }
-        if tools:
-            body["tools"] = tools
-            body["tool_choice"] = "auto"
+        """Raw LLM call with tool support via OpenRouter. Retries up to 3 times with key rotation."""
+        max_retries = 3
+        last_error: Exception | None = None
 
-        try:
-            client = _get_client()
-            response = await client.post(OPENROUTER_URL, headers=headers, json=body, timeout=float(settings.LLM_TIMEOUT))
-            if response.status_code == 401:
-                _key_failures[key] = _key_failures.get(key, 0) + 1
-                raise LLMError(f"API key unauthorized", status_code=401, retriable=True)
-            response.raise_for_status()
-            _key_failures[key] = 0
-            return response.json()
-        except httpx.TimeoutException:
-            raise LLMError(f"Agent LLM call timed out", status_code=408, retriable=True)
+        for attempt in range(1, max_retries + 1):
+            key = _next_key()
+            headers = {
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://motionweaver.app",
+                "X-Title": "MotionWeaver",
+            }
+            body: dict[str, Any] = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+            }
+            if tools:
+                body["tools"] = tools
+                body["tool_choice"] = "auto"
+
+            try:
+                client = _get_client()
+                response = await client.post(
+                    OPENROUTER_URL, headers=headers, json=body,
+                    timeout=float(settings.LLM_TIMEOUT),
+                )
+                if response.status_code == 401:
+                    _key_failures[key] = _key_failures.get(key, 0) + 1
+                    last_error = LLMError("API key unauthorized", status_code=401, retriable=True)
+                    logger.warning("[%s] 401 on attempt %d, rotating key", self.name, attempt)
+                    continue
+                if response.status_code in (429, 500, 502, 503, 504):
+                    import asyncio as _aio
+                    backoff = min(2 ** attempt, 15)
+                    logger.warning("[%s] HTTP %d, backing off %ds", self.name, response.status_code, backoff)
+                    last_error = LLMError(f"HTTP {response.status_code}", status_code=response.status_code, retriable=True)
+                    await _aio.sleep(backoff)
+                    continue
+                response.raise_for_status()
+                _key_failures[key] = 0
+                return response.json()
+            except httpx.TimeoutException:
+                import asyncio as _aio
+                backoff = min(2 ** attempt, 15)
+                logger.warning("[%s] Timeout on attempt %d, backing off %ds", self.name, attempt, backoff)
+                last_error = LLMError("Agent LLM call timed out", status_code=408, retriable=True)
+                await _aio.sleep(backoff)
+                continue
+
+        raise last_error or LLMError("All agent LLM retry attempts exhausted", retriable=False)
 
     async def _execute_tool(self, tool_name: str, tool_args: dict[str, Any]) -> str:
         """Execute a registered tool."""
