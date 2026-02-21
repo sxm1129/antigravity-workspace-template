@@ -33,7 +33,6 @@ async def score_image(
     Falls back to a default neutral score if scoring fails.
     """
     import base64
-    import httpx
 
     try:
         # Read image and encode

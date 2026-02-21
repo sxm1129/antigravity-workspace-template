@@ -375,8 +375,8 @@ async def _extract_image_from_url(image_url: str) -> bytes | None:
 
 async def _download_bytes(url: str) -> bytes:
     """Download binary content from URL."""
-    client = _get_http_client(timeout=60.0)
-    response = await client.get(url)
+    client = _get_http_client()
+    response = await client.get(url, timeout=60.0)
     response.raise_for_status()
     return response.content
 
