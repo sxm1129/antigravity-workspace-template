@@ -15,6 +15,7 @@ from app.api.styles import router as styles_router
 from app.api.metrics import router as metrics_router
 from app.api.system import router as system_router
 from app.api.render import router as render_router
+from app.api.models import router as models_router
 
 api_router = APIRouter(prefix="/api", redirect_slashes=False)
 
@@ -30,4 +31,5 @@ api_router.include_router(styles_router, prefix="/styles", tags=["Styles"])
 api_router.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
 api_router.include_router(system_router, prefix="/system", tags=["System"])
 api_router.include_router(render_router, tags=["Render"])
+api_router.include_router(models_router, tags=["Models"])
 

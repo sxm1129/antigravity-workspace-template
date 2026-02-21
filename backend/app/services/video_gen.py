@@ -1,13 +1,11 @@
 from __future__ import annotations
-"""Video generation service — uses Volcengine Ark Seedance (I2V).
+"""Video generation service — multi-provider support.
 
-Async task pattern:
-1. POST /contents/generations/tasks → create task
-2. GET  /contents/generations/tasks/{id} → poll status
-3. Download result video when task completes
+Supports providers (in priority order from VIDEO_PROVIDERS env):
+  seedance (Volcengine Ark), kling, vidu, wan (DashScope), gemini (Veo),
+  sora (RunningHub), remotion, ffmpeg.
 
-Model: doubao-seedance-1-0-lite-i2v-250428
-
+Each AI provider follows: POST create → poll status → download.
 Refactored to extend BaseGenService for unified retry, fallback, and metrics.
 """
 
@@ -21,6 +19,7 @@ import httpx
 
 from app.config import get_settings
 from app.services.base_gen_service import BaseGenService, GenServiceConfig
+from app.services.providers import kling_video, vidu_video, wan_video, gemini_video, sora_video
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -38,8 +37,9 @@ def _get_http_client() -> httpx.AsyncClient:
 
 
 class VideoGenService(BaseGenService[str]):
-    """Video generation service wrapping Volcengine Seedance I2V API.
+    """Multi-provider video generation service.
 
+    Routes to providers based on VIDEO_PROVIDERS priority list.
     Inherits retry, fallback, timeout, and cost tracking from BaseGenService.
     """
 
@@ -49,60 +49,149 @@ class VideoGenService(BaseGenService[str]):
         super().__init__(GenServiceConfig(
             max_retries=1,
             retry_delay=5.0,
-            timeout=660.0,  # Seedance tasks can take 10+ min
+            timeout=660.0,  # AI video tasks can take 10+ min
             fallback_enabled=True,
         ))
 
+    def _get_provider_chain(self) -> list[str]:
+        """Parse VIDEO_PROVIDERS into ordered list."""
+        return [p.strip() for p in settings.VIDEO_PROVIDERS.split(",") if p.strip()]
+
     async def _generate(self, **kwargs: Any) -> str:
-        """Delegate to core Seedance video generation."""
-        return await _generate_video_core(
-            prompt_motion=kwargs["prompt_motion"],
-            project_id=kwargs["project_id"],
-            scene_id=kwargs["scene_id"],
-            local_image_path=kwargs["local_image_path"],
-            local_audio_path=kwargs.get("local_audio_path"),
-        )
+        """Try primary provider from VIDEO_PROVIDERS chain."""
+        providers = self._get_provider_chain()
+        if not providers:
+            raise RuntimeError("No video providers configured")
+
+        primary = providers[0]
+        return await self._dispatch_provider(primary, **kwargs)
 
     async def _fallback(self, **kwargs: Any) -> str:
-        """Fallback chain: DashScope AI → Remotion animation → FFmpeg basic."""
-        scene_id = kwargs["scene_id"]
+        """Try remaining providers in VIDEO_PROVIDERS chain."""
+        providers = self._get_provider_chain()
+        scene_id = kwargs.get("scene_id", "unknown")
 
-        # Try DashScope AI video generation first
-        if settings.DASHSCOPE_API_KEY:
-            logger.info("video_gen fallback: trying DashScope I2V for scene=%s", scene_id[:8])
+        # Skip the first provider (already tried in _generate)
+        for provider in providers[1:]:
+            logger.info(
+                "video_gen fallback: trying %s for scene=%s",
+                provider, scene_id[:8],
+            )
             try:
-                return await _dashscope_image_to_video(
-                    kwargs.get("prompt_motion", ""),
-                    kwargs["project_id"],
-                    scene_id,
-                    kwargs["local_image_path"],
-                    kwargs.get("local_audio_path"),
-                )
+                return await self._dispatch_provider(provider, **kwargs)
             except Exception as exc:
-                logger.warning("DashScope fallback failed (%s), trying Remotion", exc)
+                logger.warning("%s fallback failed: %s", provider, exc)
 
-        # Remotion cinematic animation
-        logger.info("video_gen fallback: using Remotion for scene=%s", scene_id[:8])
-        try:
+        raise RuntimeError("All video providers exhausted")
+
+    async def _dispatch_provider(self, provider: str, **kwargs: Any) -> str:
+        """Route to the correct provider implementation."""
+        prompt_motion = kwargs.get("prompt_motion", "")
+        project_id = kwargs["project_id"]
+        scene_id = kwargs["scene_id"]
+        local_image_path = kwargs["local_image_path"]
+        local_audio_path = kwargs.get("local_audio_path")
+
+        if settings.USE_MOCK_API:
+            return _mock_video(project_id, scene_id)
+
+        if provider == "seedance":
+            return await _generate_video_core(
+                prompt_motion=prompt_motion,
+                project_id=project_id,
+                scene_id=scene_id,
+                local_image_path=local_image_path,
+                local_audio_path=local_audio_path,
+            )
+
+        elif provider == "kling":
+            if not settings.KLING_API_KEY:
+                raise RuntimeError("KLING_API_KEY not configured")
+            image_b64 = _read_image_as_base64(local_image_path)
+            result = await kling_video.generate_video(
+                prompt=prompt_motion,
+                model=settings.KLING_VIDEO_MODEL,
+                api_key=settings.KLING_API_KEY,
+                base_url=settings.KLING_API_BASE or None,
+                image_base64=[image_b64] if image_b64 else None,
+                http_client=_get_http_client(),
+            )
+            return await _download_video(result["video_url"], project_id, scene_id)
+
+        elif provider == "vidu":
+            if not settings.VIDU_API_KEY:
+                raise RuntimeError("VIDU_API_KEY not configured")
+            image_b64 = _read_image_as_base64(local_image_path)
+            result = await vidu_video.generate_video(
+                prompt=prompt_motion,
+                model=settings.VIDU_VIDEO_MODEL,
+                api_key=settings.VIDU_API_KEY,
+                base_url=settings.VIDU_API_BASE or None,
+                image_base64=[image_b64] if image_b64 else None,
+                http_client=_get_http_client(),
+            )
+            return await _download_video(result["video_url"], project_id, scene_id)
+
+        elif provider == "wan":
+            if not settings.DASHSCOPE_API_KEY:
+                raise RuntimeError("DASHSCOPE_API_KEY not configured")
+            return await _dashscope_image_to_video(
+                prompt_motion, project_id, scene_id,
+                local_image_path, local_audio_path,
+            )
+
+        elif provider == "gemini":
+            api_key = settings.GEMINI_VIDEO_API_KEY or settings.GEMINI_API_KEY
+            if not api_key:
+                raise RuntimeError("GEMINI_VIDEO_API_KEY not configured")
+            image_b64 = _read_image_as_base64(local_image_path)
+            result = await gemini_video.generate_video(
+                prompt=prompt_motion,
+                model=settings.GEMINI_VIDEO_MODEL,
+                api_key=api_key,
+                image_base64=[image_b64] if image_b64 else None,
+                http_client=_get_http_client(),
+            )
+            if "video_url" in result:
+                return await _download_video(result["video_url"], project_id, scene_id)
+            elif "video_data" in result:
+                return _save_video_data(
+                    result["video_data"], project_id, scene_id,
+                    result.get("mime_type", "video/mp4"),
+                )
+            raise RuntimeError("Gemini Veo: no video in result")
+
+        elif provider == "sora":
+            if not settings.SORA_API_KEY or not settings.SORA_API_BASE:
+                raise RuntimeError("SORA_API_KEY/SORA_API_BASE not configured")
+            image_b64 = _read_image_as_base64(local_image_path)
+            result = await sora_video.generate_video(
+                prompt=prompt_motion,
+                model=settings.SORA_VIDEO_MODEL,
+                api_key=settings.SORA_API_KEY,
+                base_url=settings.SORA_API_BASE,
+                image_base64=[image_b64] if image_b64 else None,
+                http_client=_get_http_client(),
+            )
+            return await _download_video(result["video_url"], project_id, scene_id)
+
+        elif provider == "remotion":
             return _remotion_image_to_video(
-                kwargs["project_id"],
-                scene_id,
-                kwargs["local_image_path"],
-                kwargs.get("local_audio_path"),
-                kwargs.get("prompt_motion", ""),
+                project_id, scene_id, local_image_path,
+                local_audio_path, prompt_motion,
             )
-        except Exception as exc:
-            logger.warning("Remotion fallback failed (%s), using FFmpeg", exc)
+
+        elif provider == "ffmpeg":
             return _ffmpeg_image_to_video(
-                kwargs["project_id"],
-                scene_id,
-                kwargs["local_image_path"],
-                kwargs.get("local_audio_path"),
+                project_id, scene_id, local_image_path, local_audio_path,
             )
+
+        else:
+            raise RuntimeError(f"Unknown video provider: {provider}")
 
     def _estimate_cost(self, **kwargs: Any) -> float:
         """Rough cost estimate per video generation call."""
-        return 0.10  # ~$0.10 per Seedance I2V call
+        return 0.10
 
 
 # Module-level singleton for metrics aggregation
@@ -135,6 +224,42 @@ async def generate_video(
     return result.data
 
 
+def _read_image_as_base64(local_image_path: str) -> str | None:
+    """Read a local image from media_volume and return as data URL base64."""
+    if not local_image_path:
+        return None
+    image_full_path = os.path.join(settings.MEDIA_VOLUME, local_image_path)
+    if not os.path.exists(image_full_path):
+        return None
+    with open(image_full_path, "rb") as f:
+        image_b64 = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:image/png;base64,{image_b64}"
+
+
+def _save_video_data(
+    video_b64: str,
+    project_id: str,
+    scene_id: str,
+    mime_type: str = "video/mp4",
+) -> str:
+    """Save base64-encoded video data to disk."""
+    import base64 as b64_mod
+
+    dir_path = os.path.join(settings.MEDIA_VOLUME, project_id, "videos")
+    os.makedirs(dir_path, exist_ok=True)
+
+    ext = "mp4" if "mp4" in mime_type else "webm"
+    filename = f"{scene_id}.{ext}"
+    filepath = os.path.join(dir_path, filename)
+
+    video_bytes = b64_mod.b64decode(video_b64)
+    with open(filepath, "wb") as f:
+        f.write(video_bytes)
+
+    logger.info("Saved video data: %s (%d bytes)", filepath, len(video_bytes))
+    return f"{project_id}/videos/{filename}"
+
+
 async def _generate_video_core(
     prompt_motion: str,
     project_id: str,
@@ -154,11 +279,8 @@ async def _generate_video_core(
     Returns:
         Relative path to the generated video in media_volume.
     """
-    if settings.USE_MOCK_API:
-        return _mock_video(project_id, scene_id)
-
     # When no ARK_API_KEY, raise immediately so BaseGenService routes to _fallback()
-    # which implements the full DashScope → Remotion → FFmpeg chain.
+    # which iterates through remaining providers in VIDEO_PROVIDERS chain.
     if not settings.ARK_API_KEY:
         raise RuntimeError("ARK_API_KEY not configured — delegating to fallback chain")
 

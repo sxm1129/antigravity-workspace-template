@@ -66,9 +66,30 @@ class Settings(BaseSettings):
     DASHSCOPE_VIDEO_MODEL: str = "wanx2.1-i2v-plus"
     DASHSCOPE_ENDPOINT: str = "https://dashscope.aliyuncs.com/api/v1"
 
+    # --- Kling (Video + Image Generation) ---
+    KLING_API_KEY: str = ""
+    KLING_API_BASE: str = ""  # "i2v_url|t2v_url|query_url" pipe-separated
+    KLING_VIDEO_MODEL: str = "kling-v2-6(PRO)"
+    KLING_IMAGE_MODEL: str = "kling-image-o1"
+
+    # --- Vidu (Video + Image Generation) ---
+    VIDU_API_KEY: str = ""
+    VIDU_API_BASE: str = ""  # "t2v_url|i2v_url|query_url" pipe-separated
+    VIDU_VIDEO_MODEL: str = "viduq2-pro"
+    VIDU_IMAGE_MODEL: str = "viduq2"
+
+    # --- Sora / RunningHub ---
+    SORA_API_KEY: str = ""
+    SORA_API_BASE: str = ""
+    SORA_VIDEO_MODEL: str = "sora-2"
+
     # --- Legacy keys (kept for backward compat) ---
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-pro"
+
+    # --- Gemini Video (Veo) ---
+    GEMINI_VIDEO_API_KEY: str = ""  # Falls back to GEMINI_API_KEY
+    GEMINI_VIDEO_MODEL: str = "veo-3.0-generate-preview"
 
     # --- IndexTTS ---
     INDEX_TTS_URL: str = "http://39.102.122.9:8049"
@@ -80,10 +101,10 @@ class Settings(BaseSettings):
     MAX_QUALITY_RETRIES: int = 2
 
     # --- Image Provider Strategy ---
-    IMAGE_PROVIDERS: str = "flux,openrouter"  # comma-separated, in priority order
+    IMAGE_PROVIDERS: str = "flux,openrouter,volcengine,kling,vidu"
 
     # --- Video Provider Strategy ---
-    VIDEO_PROVIDERS: str = "seedance,ffmpeg"  # comma-separated, in priority order
+    VIDEO_PROVIDERS: str = "seedance,kling,vidu,wan,gemini,sora,ffmpeg"
 
     # --- Compose Provider Strategy ---
     COMPOSE_PROVIDER: str = "ffmpeg"  # "ffmpeg" | "remotion"
