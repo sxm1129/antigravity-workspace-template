@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from app.services.video_registry import VIDEO_REGISTRY
 from app.services.image_registry import IMAGE_REGISTRY
@@ -98,14 +99,20 @@ async def validate_video_config(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+class TestConnectivityRequest(BaseModel):
+    manufacturer: str = Field(..., description="Provider manufacturer name")
+    api_key: str = Field(..., description="API key to test")
+    base_url: str | None = Field(None, description="Custom base URL")
+
+
 @router.post("/test")
-async def test_model_connectivity(
-    manufacturer: str,
-    api_key: str,
-    base_url: str | None = None,
-) -> dict[str, Any]:
+async def test_model_connectivity(req: TestConnectivityRequest) -> dict[str, Any]:
     """Test connectivity to a model provider (lightweight health check)."""
     import httpx
+
+    manufacturer = req.manufacturer
+    api_key = req.api_key
+    base_url = req.base_url
 
     test_urls: dict[str, str] = {
         "volcengine": "https://ark.cn-beijing.volces.com/api/v3/models",

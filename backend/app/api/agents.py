@@ -18,19 +18,19 @@ router = APIRouter(prefix="/api/agents", tags=["AI Agents"])
 
 
 class StoryboardRequest(BaseModel):
-    script: str = Field(..., description="Script text to generate storyboard from")
+    script: str = Field(..., min_length=10, description="Script text to generate storyboard from")
     style: str = Field("cinematic anime", description="Visual style")
     model: str | None = Field(None, description="Override LLM model")
 
 
 class OutlineRequest(BaseModel):
-    logline: str = Field(..., description="Story premise / logline")
+    logline: str = Field(..., min_length=5, description="Story premise / logline")
     num_episodes: int = Field(5, ge=1, le=30, description="Number of episodes")
     model: str | None = Field(None, description="Override LLM model")
 
 
 class PromptPolishRequest(BaseModel):
-    description: str = Field(..., description="Scene description to enhance")
+    description: str = Field(..., min_length=2, description="Scene description to enhance")
     style: str = Field("cinematic anime", description="Visual style")
     character_descriptions: str | None = Field(None, description="Character appearance info")
     include_motion: bool = Field(False, description="Also generate motion prompt")

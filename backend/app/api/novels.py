@@ -21,10 +21,10 @@ router = APIRouter(prefix="/api/novels", tags=["Novels"])
 # ---------------------------------------------------------------------------
 
 class NovelUploadRequest(BaseModel):
-    title: str = Field(..., description="Novel title")
-    raw_text: str = Field(..., description="Full novel text content")
-    author: str | None = Field(None, description="Author name")
-    genre: str | None = Field(None, description="Genre")
+    title: str = Field(..., min_length=1, max_length=255, description="Novel title")
+    raw_text: str = Field(..., min_length=100, max_length=5_000_000, description="Full novel text content (max 5MB)")
+    author: str | None = Field(None, max_length=255, description="Author name")
+    genre: str | None = Field(None, max_length=100, description="Genre")
 
 
 class NovelResponse(BaseModel):
