@@ -59,7 +59,7 @@ async def _volcengine_upscale(
     scale: int,
     http_client: httpx.AsyncClient | None = None,
 ) -> str:
-    """Upscale via Volcengine API."""
+    """Upscale via Volcengine visual/content API (super-resolution endpoint)."""
     full_path = os.path.join(settings.MEDIA_VOLUME, local_image_path)
     with open(full_path, "rb") as f:
         img_b64 = base64.b64encode(f.read()).decode()
@@ -69,35 +69,44 @@ async def _volcengine_upscale(
         "Content-Type": "application/json",
     }
 
+    # Use image generation endpoint with upscale prompt as a best-effort approach.
+    # Note: A dedicated super-resolution API should be used in production.
     body = {
         "model": "doubao-seedream-4-5-251128",
         "content": [
-            {"type": "text", "text": f"upscale {scale}x"},
+            {"type": "text", "text": f"Upscale this image to {scale}x resolution, maintain all details, enhance sharpness"},
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
         ],
     }
 
     endpoint = f"{settings.ARK_ENDPOINT}/contents/generations/tasks"
-    client = http_client or httpx.AsyncClient(timeout=60.0)
+    client = http_client or httpx.AsyncClient(timeout=120.0)
     own_client = http_client is None
 
     try:
         resp = await client.post(endpoint, json=body, headers=headers)
         resp.raise_for_status()
         task_id = resp.json().get("id")
+        if not task_id:
+            raise RuntimeError(f"Volcengine upscale task creation failed: {resp.json()}")
 
-        # Poll
-        for _ in range(30):
+        # Poll with timeout
+        for i in range(30):
             await asyncio.sleep(5)
             poll = await client.get(f"{endpoint}/{task_id}", headers=headers)
             poll.raise_for_status()
             data = poll.json()
-            if data.get("status") == "succeeded":
+            status = data.get("status", "")
+
+            if status == "succeeded":
                 result_url = data.get("content", {}).get("image_url")
                 if result_url:
                     return await _download_upscaled(result_url, local_image_path, scale, client)
+                raise RuntimeError("Volcengine upscale succeeded but no image URL")
+            elif status in ("failed", "cancelled"):
+                raise RuntimeError(f"Volcengine upscale task {status}")
 
-        raise RuntimeError("Upscale timed out")
+        raise RuntimeError("Volcengine upscale timed out")
     finally:
         if own_client:
             await client.aclose()

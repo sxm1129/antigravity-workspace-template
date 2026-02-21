@@ -82,7 +82,10 @@ async def generate_image(
 
             if state == "success":
                 creation = task.get("creations", [{}])[0]
-                return {"image_url": creation.get("url"), "task_id": task_id}
+                image_url = creation.get("url")
+                if not image_url:
+                    raise RuntimeError("Vidu image task succeeded but no URL in response")
+                return {"image_url": image_url, "task_id": task_id}
             elif state == "failed":
                 raise RuntimeError("Vidu image task failed")
 

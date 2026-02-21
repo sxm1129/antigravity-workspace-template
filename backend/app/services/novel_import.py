@@ -68,20 +68,22 @@ def parse_chapters(raw_text: str) -> list[dict[str, Any]]:
         for para in paragraphs:
             chunk += para + "\n\n"
             if len(chunk) >= 2000:
+                stripped_chunk = chunk.strip()
                 chapters.append({
                     "chapter_number": num,
                     "title": f"Segment {num}",
-                    "content": chunk.strip(),
-                    "word_count": len(chunk),
+                    "content": stripped_chunk,
+                    "word_count": len(stripped_chunk),
                 })
                 chunk = ""
                 num += 1
         if chunk.strip():
+            stripped_chunk = chunk.strip()
             chapters.append({
                 "chapter_number": num,
                 "title": f"Segment {num}",
-                "content": chunk.strip(),
-                "word_count": len(chunk),
+                "content": stripped_chunk,
+                "word_count": len(stripped_chunk),
             })
 
     return chapters
